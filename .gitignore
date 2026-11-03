@@ -1,3 +1,9 @@
+node_modules/
+dist/
+*.log
+server/messenger.db
+server/uploads/
+server/avatars/
+client/config.json
 __pycache__/
 *.pyc
-server/messenger.db

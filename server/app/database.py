@@ -194,12 +194,17 @@ def toggle_reaction(msg_id, user_id, emoji):
             c.execute("DELETE FROM reactions WHERE message_id=? AND user_id=?", (msg_id, user_id))
             c.execute("INSERT INTO reactions(message_id, user_id, emoji, created_at) VALUES(?,?,?,?)",
                       (msg_id, user_id, emoji, int(time.time())))
-    return reactions_for(msg_id)
+    return reactions_for(msg_id, user_id)
 
-def reactions_for(msg_id):
+def reactions_for(msg_id, viewer_id=None):
     c = _connect()
-    rows = c.execute("SELECT emoji, COUNT(*) n, MAX(user_id=?) mine FROM reactions"
-                     " WHERE message_id=? GROUP BY emoji ORDER BY n DESC", (msg_id,)).fetchall()
+    if viewer_id is None:
+        rows = c.execute("SELECT emoji, COUNT(*) n, 0 mine FROM reactions"
+                         " WHERE message_id=? GROUP BY emoji ORDER BY n DESC", (msg_id,)).fetchall()
+    else:
+        rows = c.execute("SELECT emoji, COUNT(*) n, MAX(user_id=?) mine FROM reactions"
+                         " WHERE message_id=? GROUP BY emoji ORDER BY n DESC",
+                         (viewer_id, msg_id)).fetchall()
     c.close()
     return [{"emoji": r["emoji"], "count": r["n"], "mine": bool(r["mine"])} for r in rows]
 
