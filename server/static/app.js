@@ -616,6 +616,9 @@ function loadMessages(quiet) {
     // Дедупликация: помечаем все полученные сообщения как «виденные», но НЕ
     // уведомляем отсюда (уведомление — только из WebSocket new_message).
     for (var i = 0; i < msgs.length; i++) noteMessage(msgs[i], true);
+    // Принудительная сортировка по id: гарантия хронологического порядка,
+    // даже если сервер/сеть вернули сообщения неупорядоченно.
+    msgs.sort(function (a, b) { return a.id - b.id; });
     state.messages = msgs;
     renderMessages();
     if (!quiet) refreshDialogs();
@@ -641,7 +644,8 @@ function renderMessages() {
     var mine = m.sender_id === state.me.id;
     var canDel = mine || state.me.role === "admin";
     html += '<div class="msg' + (mine ? " mine" : "") + '" data-mid="' + m.id + '">' +
-      (mine ? "" : avatarHtml(m.sender_name, m.sender_avatar, "xs").replace('class="avatar xs"', 'class="avatar xs msg-avatar" data-uid="' + m.sender_id + '"')) +
+      // аватар отправителя: кликабельный (открывает профиль); data-uid — отдельный атрибут
+      (mine ? "" : avatarClickHtml(m.sender_name, m.sender_avatar, "xs", m.sender_id).replace("js-avatar", "js-avatar msg-avatar")) +
       '<div class="msg-body">' +
       '<div class="msg-author">' + (mine ? "" : esc(m.sender_name)) + "</div>" +
       '<div class="msg-bubble"><div class="msg-text"></div><span class="msg-time">' + fmtTime(m.created_at) + "</span>" +
@@ -822,10 +826,16 @@ function avatarHtml(name, avatar, sizeCls) {
   return "<div " + clsAttr + " " + palette[idx % palette.length] + ">" + letter + "</div>";
 }
 
-// Аватар с кликом по профилю: data-uid + класс js-avatar (или msg-avatar в чате)
+// Аватар с кликом по профилю: data-uid + класс js-avatar (или msg-avatar в чате).
+// ВАЖНО: data-uid добавляется ОТДЕЛЬНЫМ атрибутом (не склейкой со старым class=),
+// иначе получается невалидный HTML вида `class="..." class="..."` — парсер Chrome
+// отбрасывает второй атрибут, аватар теряет классы/размер/цвет и становится
+// невидимым (нулевой размер), а клик по «профилю» перестает работать.
 function avatarClickHtml(name, avatar, sizeCls, uid) {
   var h = avatarHtml(name, avatar, sizeCls);
-  return h.replace('class="avatar', 'data-uid="' + uid + '" class="avatar js-avatar');
+  // картинка: <div class="avatar ... has-img" style=...> -> вставляем data-uid после class
+  h = h.replace('<div class="avatar', '<div data-uid="' + uid + '" class="avatar js-avatar');
+  return h;
 }
 
 // клик по аватару в списке/профиле -> открыть профиль пользователя

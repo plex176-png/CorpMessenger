@@ -152,6 +152,10 @@ input:focus, select:focus { outline: none; border-bottom-color: #3390ec; }
   margin-bottom: 8px; position: relative; box-shadow: 0 1px 1px rgba(16,34,64,.13);
   margin-left: 0; clear: both;
 }
+/* Список сообщений — вертикальный flex-поток: элементы ВСЕГДА идут строго друг
+   под другом (порядок = порядок массива state.messages, т.е. по id/времени).
+   Это исключает наложение сообщений при плавающих элементах/автоскролле. */
+.msgs-box { display: flex; flex-direction: column; }
 .msg.mine {
   margin-left: auto;
   background: #effdde; /* telegram outgoing green */
@@ -352,8 +356,8 @@ body[data-theme="dark"] .member-row { border-bottom-color: #242f3d; }
 .js-avatar, .msg-avatar { cursor: pointer; }
 .js-avatar:hover, .msg-avatar:hover { filter: brightness(1.08); }
 
-/* ===== сообщения: аватар слева + пузырь ===== */
-.msg { display: flex; align-items: flex-end; gap: 8px; max-width: 78%; background: transparent; box-shadow: none; padding: 0; }
+/* ===== сообщения: аватар слева + пузырь (flex-поток в .msgs-box) ===== */
+.msg { display: flex; align-items: flex-end; gap: 8px; max-width: 78%; background: transparent; box-shadow: none; padding: 0; margin-bottom: 8px; position: relative; }
 .msg.mine { margin-left: auto; }
 .msg .msg-avatar { margin-bottom: 2px; }
 .msg-body { min-width: 0; }
