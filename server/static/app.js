@@ -44,11 +44,19 @@ function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 function api(path, opts) {
   opts = opts || {};
   opts.headers = opts.headers || {};
+  var isForm = (typeof FormData !== "undefined" && opts.body instanceof FormData);
   if (state.token) opts.headers["Authorization"] = "Bearer " + state.token;
   return fetch(state.base + path, opts).then(function (r) {
     if (r.status === 401 && state.token) { doLogout(false); throw new Error("Сессия истекла"); }
-    return r.json().then(function (j) {
-      if (!r.ok) throw new Error(j && j.error ? j.error : "HTTP " + r.status);
+    return r.text().then(function (txt) {
+      var j = null;
+      try { j = JSON.parse(txt); } catch (e) { j = null; }
+      if (!r.ok) {
+        var msg = (j && j.error) ? j.error : ("HTTP " + r.status);
+        if (!j) msg += " — сервер вернул не-JSON ответ";
+        throw new Error(msg);
+      }
+      if (!j) throw new Error("Некорректный ответ сервера");
       return j;
     });
   });
@@ -397,6 +405,26 @@ function refreshContacts() {
     state.contacts = j.contacts || []; state.directory = j.directory || [];
     renderSide();
   })["catch"](function () {});
+}
+
+function toast(msg) {
+  // единый тост: новый экземпляр вместо переиспользования узла (иначе класс .show
+  // не перезапускал анимацию и окно могло «залипать» на экране)
+  var old = document.getElementById("app-toast");
+  if (old && old.parentNode) old.parentNode.removeChild(old);
+  var t = document.createElement("div");
+  t.id = "app-toast";
+  t.className = "toast";
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(function () { t.classList.add("fade"); }, 2500);
+  setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 3200);
+}
+
+// Перерисовка аватаров в сайдбаре без полной перезагрузки (после смены аватара).
+function paintDialogAvatars() {
+  refreshContacts();
+  refreshDialogs();
 }
 
 // ---------- уведомления: бейджи, заголовок, анимация ----------
@@ -958,23 +986,32 @@ function openProfile(uid) {
           '<button class="ghost" id="prof-add-contact">Добавить в контакты</button>') +
       "</div></div>";
     overlay.classList.remove("hidden");
-    bindClick(overlay, "#prof-close", function () { overlay.classList.add("hidden"); }, "#prof-close");
+    var closeProfile = function () {
+      overlay.classList.add("hidden");
+      overlay.innerHTML = "";
+    };
+    bindClick(overlay, "#prof-close", closeProfile, "#prof-close");
+    // клик по тёмному фону вокруг карточки тоже закрывает окно
+    overlay.onclick = function (ev) { if (ev.target === overlay) closeProfile(); };
     if (p.is_me) {
       bindClick(overlay, "#prof-edit-avatar", function () {
         var inp = document.createElement("input");
         inp.type = "file"; inp.accept = ".png,.jpg,.jpeg,.gif,.webp";
         inp.onchange = function () {
           var f = inp.files[0]; if (!f) return;
+          if (f.size > 5 * 1024 * 1024) { showErr("Файл больше 5 МБ"); return; }
           var fd = new FormData(); fd.append("file", f);
-          api("/api/avatar", { method: "POST", body: fd }).then(function () {
-            refreshMe(); openProfile(uid);
-          })["catch"](function (e) { showErr(e.message); });
+          api("/api/avatar", { method: "POST", body: fd, headers: { "Content-Type": null } }).then(function () {
+            toast("Аватар обновлён");
+            refreshMe().then(paintDialogAvatars); openProfile(uid);
+          })["catch"](function (e) { showErr("Не удалось сохранить аватар: " + e.message); });
         };
         inp.click();
       }, "#prof-edit-avatar");
       bindClick(overlay, "#prof-del-avatar", function () {
         api("/api/avatar", { method: "DELETE" }).then(function () {
-          refreshMe(); openProfile(uid);
+          toast("Аватар удалён");
+          refreshMe().then(paintDialogAvatars); openProfile(uid);
         })["catch"](function (e) { showErr(e.message); });
       }, "#prof-del-avatar");
       bindClick(overlay, "#prof-save-bio", function () {
