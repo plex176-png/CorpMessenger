@@ -217,9 +217,11 @@ function chatRow(d) {
     ? '<span class="badge unread-anim">' + (d.unread > 99 ? "99+" : d.unread) + '</span>' : "";
   var dot = d.type === "dm" ? statusDot(d.status || "offline") : "";
   var sub = d.last_text ? esc(String(d.last_text)).slice(0, 60) : (d.type === "group" ? "Группа" : "Нет сообщений");
+  // В названии чата показываем количество непрочитанных; участников в название не выводим.
+  var title = esc(d.name) + (d.unread > 0 ? ' <span class="title-count">(' + (d.unread > 99 ? "99+" : d.unread) + ')</span>' : "");
   return '<div class="chat-item' + (d.unread > 0 ? " has-unread" : "") + '" data-type="' + d.type + '" data-id="' + d.id + '">' +
     '<div class="avatar sm">' + esc((d.name || "?").charAt(0).toUpperCase()) + "</div>" +
-    '<div class="ci-main"><div class="ci-title">' + dot + esc(d.name) + "</div>" +
+    '<div class="ci-main"><div class="ci-title">' + dot + title + "</div>" +
     '<div class="ci-sub">' + sub + "</div></div>" + unreadHtml + "</div>";
 }
 
@@ -228,7 +230,7 @@ function bindChatItems(root) {
   for (var i = 0; i < items.length; i++) {
     items[i].onclick = function () {
       openChat({ type: this.getAttribute("data-type"), id: parseInt(this.getAttribute("data-id"), 10),
-                 name: this.querySelector(".ci-title").textContent.replace(/[🟢🟡⚪]/g, "").trim() });
+                 name: this.querySelector(".ci-title").textContent.replace(/[🟢🟡⚪]/g, "").replace(/\(\d+\+?\)/g, "").trim() });
     };
   }
 }
@@ -299,10 +301,12 @@ function renderGroupsTab(body) {
     for (var i = 0; i < gs.length; i++) {
       var g = gs[i];
       var unreadHtml = g.unread > 0 ? '<span class="badge unread-anim">' + (g.unread > 99 ? "99+" : g.unread) + "</span>" : "";
+      // В названии группы — количество непрочитанных; число участников из названия убрано.
+      var gTitle = esc(g.name) + (g.unread > 0 ? ' <span class="title-count">(' + (g.unread > 99 ? "99+" : g.unread) + ')</span>' : "");
       html += '<div class="chat-item' + (g.unread > 0 ? " has-unread" : "") + '" data-type="group" data-id="' + g.id + '">' +
         '<div class="avatar sm grp">' + esc(g.name.charAt(0).toUpperCase()) + "</div>" +
-        '<div class="ci-main"><div class="ci-title">' + esc(g.name) + "</div>" +
-        '<div class="ci-sub">' + g.members + " участник(ов)</div></div>" + unreadHtml + "</div>";
+        '<div class="ci-main"><div class="ci-title">' + gTitle + "</div>" +
+        '<div class="ci-sub">' + esc(String(g.last_text || "").slice(0, 60) || "Нет сообщений") + "</div></div>" + unreadHtml + "</div>";
     }
     if (!gs.length) html += '<p class="muted pad">Групп пока нет.</p>';
     body.innerHTML = html;

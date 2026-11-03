@@ -202,7 +202,7 @@ def get_messages(u):
     if chat_type == "group" and not db.in_group(chat_id, u["id"]):
         return jsonify({"error": "Нет доступа к группе"}), 403
     msgs = db.chat_messages(chat_type, chat_id, u["id"])
-    key = ("group:%d" % chat_id) if chat_type == "group" else ("dm:%d" % chat_id)
+    key = db.chat_key_for(u["id"], chat_type, chat_id)
     if msgs:
         db.mark_read(u["id"], key, msgs[-1]["id"])
     return jsonify(msgs)
@@ -244,7 +244,7 @@ def read_msg(u, mid):
     m = db.message_with_names(mid)
     if not m:
         return jsonify({"error": "not found"}), 404
-    key = ("group:%d" % m["group_id"]) if m["chat_type"] == "group" else ("dm:%d" % m["group_id"])
+    key = db.chat_key_for(u["id"], m["chat_type"], m["group_id"])
     db.mark_read(u["id"], key, mid)
     return jsonify({"ok": True})
 

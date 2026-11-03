@@ -241,6 +241,13 @@ def list_contacts(user_id):
         d = dict(r); d["unread"] = unread_count(user_id, "dm:%d" % d["id"]); out.append(d)
     return out
 
+def chat_key_for(user_id, chat_type, chat_id):
+    """Единый нормализованный ключ чата для reads/unread (для ЛС — симметричный)."""
+    if chat_type == "dm":
+        a, b = sorted((int(chat_id), int(user_id)))
+        return "dm:%d:%d" % (a, b)
+    return "group:%d" % int(chat_id)
+
 def insert_message(chat_type, sender_id, text="", group_id=None, file_id=None, peer_id=None):
     with tx() as c:
         if chat_type == "dm":
@@ -278,30 +285,44 @@ def chat_messages(chat_type, chat_id, user_id, limit=100):
     return [dict(r) for r in reversed(rows)]
 
 def mark_read(user_id, chat_key, msg_id):
-    c = _connect()
-    cur = c.execute("UPDATE reads SET last_read_msg_id=? WHERE user_id=? AND chat_key=? AND last_read_msg_id<?",
-                    (msg_id, user_id, chat_key, msg_id))
-    if cur.rowcount == 0:
-        exists = c.execute("SELECT 1 FROM reads WHERE user_id=? AND chat_key=?", (user_id, chat_key)).fetchone()
-        if not exists:
-            c.execute("INSERT INTO reads(user_id, chat_key, last_read_msg_id) VALUES(?,?,?)",
-                      (user_id, chat_key, msg_id))
-    c.commit(); c.close()
+    # Отметка о прочтении не должна уменьшать уже сохранённую метку.
+    with tx() as c:
+        cur = c.execute("UPDATE reads SET last_read_msg_id=? WHERE user_id=? AND chat_key=? AND last_read_msg_id<?",
+                        (msg_id, user_id, chat_key, msg_id))
+        if cur.rowcount == 0:
+            exists = c.execute("SELECT 1 FROM reads WHERE user_id=? AND chat_key=?", (user_id, chat_key)).fetchone()
+            if not exists:
+                c.execute("INSERT INTO reads(user_id, chat_key, last_read_msg_id) VALUES(?,?,?)",
+                          (user_id, chat_key, msg_id))
 
 def unread_count(user_id, chat_key):
+    """Количество непрочитанных сообщений в чате.
+    Ключ чата нормализуется: 'dm:<id>' хранится как 'dm:<min>:<max>',
+    поэтому чтение и подсчёт для одного диалога всегда используют один ключ."""
     c = _connect()
-    lr = c.execute("SELECT last_read_msg_id FROM reads WHERE user_id=? AND chat_key=?",
-                   (user_id, chat_key)).fetchone()
-    last_read = lr["last_read_msg_id"] if lr else 0
-    if chat_key.startswith("group:"):
-        gid = int(chat_key.split(":")[1])
-        n = c.execute("SELECT count(*) n FROM messages WHERE deleted=0 AND chat_type='group'"
-                      " AND group_id=? AND id>? AND sender_id<>?", (gid, last_read, user_id)).fetchone()["n"]
-    else:
-        peer = int(chat_key.split(":")[1])
-        n = c.execute("SELECT count(*) n FROM messages WHERE deleted=0 AND chat_type='dm'"
-                      " AND group_id=? AND id>? AND sender_id<>?", (peer, last_read, user_id)).fetchone()["n"]
-    c.close(); return n
+    try:
+        kind, arg = chat_key.split(":", 1)
+        if kind == "dm":
+            a, b = sorted((int(arg), int(user_id)))
+            key = "dm:%d:%d" % (a, b)
+            sql = ("SELECT count(*) n FROM messages WHERE deleted=0 AND chat_type='dm'"
+                   " AND ((sender_id=? AND group_id=?) OR (sender_id=? AND group_id=?)) AND id>?")
+            args = (user_id, b, b, user_id)
+        else:
+            key = "group:%d" % int(arg)
+            sql = ("SELECT count(*) n FROM messages WHERE deleted=0 AND chat_type='group'"
+                   " AND group_id=? AND id>? AND sender_id<>?")
+            args = (int(arg),)
+        lr = c.execute("SELECT last_read_msg_id FROM reads WHERE user_id=? AND chat_key=?",
+                       (user_id, key)).fetchone()
+        last_read = lr["last_read_msg_id"] if lr else 0
+        if kind == "dm":
+            n = c.execute(sql, args + (last_read,)).fetchone()["n"]
+        else:
+            n = c.execute(sql, args + (last_read, user_id)).fetchone()["n"]
+        return n
+    finally:
+        c.close()
 
 def total_unread(user_id):
     keys = set()
