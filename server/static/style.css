@@ -337,3 +337,74 @@ body[data-theme="dark"] #theme-toggle { background: transparent; color: #7d8691;
 body[data-theme="dark"] .muted { color: #7d8691; }
 [data-theme="dark"] .member-row,
 body[data-theme="dark"] .member-row { border-bottom-color: #242f3d; }
+
+/* ===== аватары: размеры и цвета (Telegram-like) ===== */
+.avatar.xs { width: 28px; height: 28px; font-size: 13px; flex-shrink: 0; }
+.avatar.lg { width: 96px; height: 96px; font-size: 40px; }
+.avatar.has-img { background-size: cover; background-position: center; }
+.av-red    { background: linear-gradient(135deg,#ff8a65,#e64a5f); color:#fff; }
+.av-orange { background: linear-gradient(135deg,#ffb74d,#f57c00); color:#fff; }
+.av-violet { background: linear-gradient(135deg,#b39ddb,#7e57c2); color:#fff; }
+.av-green  { background: linear-gradient(135deg,#81c784,#388e3c); color:#fff; }
+.av-cyan   { background: linear-gradient(135deg,#4dd0e1,#0097a7); color:#fff; }
+.av-blue   { background: linear-gradient(135deg,#64b5f6,#1976d2); color:#fff; }
+.av-pink   { background: linear-gradient(135deg,#f48fb1,#d81b60); color:#fff; }
+.js-avatar, .msg-avatar { cursor: pointer; }
+.js-avatar:hover, .msg-avatar:hover { filter: brightness(1.08); }
+
+/* ===== сообщения: аватар слева + пузырь ===== */
+.msg { display: flex; align-items: flex-end; gap: 8px; max-width: 78%; background: transparent; box-shadow: none; padding: 0; }
+.msg.mine { margin-left: auto; }
+.msg .msg-avatar { margin-bottom: 2px; }
+.msg-body { min-width: 0; }
+.msg-bubble {
+  background: #fff; border-radius: 14px; padding: 7px 12px 6px; position: relative;
+  box-shadow: 0 1px 1px rgba(16,34,64,.13); max-width: 100%; word-wrap: break-word;
+}
+.msg.mine .msg-bubble { background: #effdde; }
+[data-theme="dark"] .msg-bubble, body[data-theme="dark"] .msg-bubble { background: #17212b; color: #f5f5f5; box-shadow: 0 1px 1px rgba(0,0,0,.3); }
+[data-theme="dark"] .msg.mine .msg-bubble, body[data-theme="dark"] .msg.mine .msg-bubble { background: #2b5278; color: #fff; }
+
+/* ===== реакции ===== */
+.msg-reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.react-chip {
+  background: rgba(51,144,236,.12); border-radius: 12px; padding: 1px 8px;
+  font-size: 13px; cursor: default; border: 1px solid rgba(51,144,236,.25);
+}
+.react-chip.mine { background: rgba(51,144,236,.3); border-color: #3390ec; }
+.msg-react-btn {
+  position: absolute; top: 4px; right: 4px; opacity: 0; border: none; background: rgba(255,255,255,.85);
+  font-size: 13px; padding: 1px 6px; border-radius: 10px; transition: opacity .15s; cursor: pointer;
+}
+.msg-del { right: 30px !important; }
+.msg:hover .msg-react-btn { opacity: 1; }
+[data-theme="dark"] .msg-react-btn { background: rgba(23,33,43,.85); }
+.react-picker {
+  position: absolute; bottom: calc(100% + 4px); right: 0; z-index: 30;
+  background: #fff; border-radius: 22px; padding: 4px 8px; display: flex; gap: 2px;
+  box-shadow: 0 4px 18px rgba(0,0,0,.25); animation: pop .12s ease-out;
+}
+[data-theme="dark"] .react-picker { background: #17212b; }
+.react-opt { border: none; background: transparent; font-size: 22px; cursor: pointer; border-radius: 50%; padding: 2px; transition: transform .1s; }
+.react-opt:hover { transform: scale(1.35); }
+@keyframes pop { from { transform: scale(.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+/* ===== профиль (модалка) ===== */
+#profile-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+}
+.prof-card {
+  background: var(--panel,#fff); border-radius: 14px; width: 340px; max-width: 92vw;
+  padding: 20px; box-shadow: 0 10px 40px rgba(0,0,0,.35); text-align: center; position: relative;
+}
+[data-theme="dark"] .prof-card { background: #17212b; color: #f1f1f1; }
+.prof-close { position: absolute; top: 8px; right: 10px; border: none; background: transparent; font-size: 18px; cursor: pointer; color: #8a93a0; }
+.prof-top { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.prof-name { font-size: 18px; font-weight: 700; }
+.prof-sub { color: #7d8791; font-size: 13px; }
+.prof-status { font-size: 13px; margin-top: 2px; }
+.prof-status.online { color: #4fae4e; }
+.prof-bio { margin: 10px 0 4px; font-size: 14px; white-space: pre-wrap; }
+.prof-actions { display: flex; gap: 8px; justify-content: center; margin-top: 14px; flex-wrap: wrap; }
+.prof-stats { margin-top: 10px; font-size: 12.5px; color: #7d8791; }

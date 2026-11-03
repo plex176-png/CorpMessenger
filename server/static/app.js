@@ -447,7 +447,9 @@ function chatRow(d) {
   var title = esc(d.name) + (d.unread > 0 ? ' <span class="title-count">(' + (d.unread > 99 ? "99+" : d.unread) + ')</span>' : "");
   var active = state.chat && state.chat.type === d.type && state.chat.id === d.id ? " active-telegram" : "";
   return '<div class="chat-item' + (d.unread > 0 ? " has-unread" : "") + active + '" data-type="' + d.type + '" data-id="' + d.id + '">' +
-    '<div class="avatar sm' + (d.type === "group" ? " grp" : "") + '">' + esc((d.name || "?").charAt(0).toUpperCase()) + "</div>" +
+    (d.type === "group"
+      ? avatarHtml(d.name, "", "sm")
+      : avatarClickHtml(d.name || "?", d.avatar || "", "sm", d.id)) +
     '<div class="ci-main"><div class="ci-title">' + dot + title + "</div>" +
     '<div class="ci-sub">' + sub + "</div></div>" + unreadHtml + "</div>";
 }
@@ -458,6 +460,14 @@ function bindChatItems(root) {
     items[i].onclick = function () {
       openChat({ type: this.getAttribute("data-type"), id: parseInt(this.getAttribute("data-id"), 10),
                  name: this.querySelector(".ci-title").textContent.replace(/[🟢🟡⚪]/g, "").replace(/\(\d+\+?\)/g, "").trim() });
+    };
+  }
+  bindAvatarProfiles(root); // клик по аватару ЛС -> профиль (модалка открывается поверх)
+  var avs = root.querySelectorAll(".js-avatar[data-uid]");
+  for (var j = 0; j < avs.length; j++) {
+    avs[j].onclick = function (ev) {
+      ev.stopPropagation();
+      openProfile(parseInt(this.getAttribute("data-uid"), 10));
     };
   }
 }
@@ -480,7 +490,7 @@ function renderDirectory(body) {
       c = state.contacts[i];
       if (q && (c.display_name + " " + c.username).toLowerCase().indexOf(q) < 0) continue;
       list += '<div class="contact-item">' +
-        '<div class="avatar sm">' + esc(c.display_name.charAt(0).toUpperCase()) + "</div>" +
+        avatarClickHtml(c.display_name, c.avatar || "", "sm", c.id) +
         '<div class="ci-main"><div class="ci-title">' + statusDot(c.status) + esc(c.display_name) + "</div>" +
         '<div class="ci-sub">@' + esc(c.username) + "</div></div>" +
         '<button class="ghost sm btn-write" data-id="' + c.id + '">Написать</button>' +
@@ -630,18 +640,32 @@ function renderMessages() {
     var m = state.messages[i];
     var mine = m.sender_id === state.me.id;
     var canDel = mine || state.me.role === "admin";
-    html += '<div class="msg' + (mine ? " mine" : "") + '">' +
+    html += '<div class="msg' + (mine ? " mine" : "") + '" data-mid="' + m.id + '">' +
+      (mine ? "" : avatarHtml(m.sender_name, m.sender_avatar, "xs").replace('class="avatar xs"', 'class="avatar xs msg-avatar" data-uid="' + m.sender_id + '"')) +
+      '<div class="msg-body">' +
       '<div class="msg-author">' + (mine ? "" : esc(m.sender_name)) + "</div>" +
-      '<div class="msg-text"></div><span class="msg-time">' + fmtTime(m.created_at) + "</span>"+
+      '<div class="msg-bubble"><div class="msg-text"></div><span class="msg-time">' + fmtTime(m.created_at) + "</span>" +
       (m.file_id ? fileLink(m) : "") +
+      reactionsHtml(m) +
       (canDel ? '<button class="msg-del" data-mid="' + m.id + '" title="Удалить">🗑</button>' : "") +
-      "</div>";
+      "</div></div>";
   }
   box.innerHTML = html;
   var texts = box.querySelectorAll(".msg-text");
   for (var k = 0; k < texts.length; k++) {
     renderEmojiInto(texts[k], state.messages[k].text);
   }
+  // клик по аватару отправителя -> профиль пользователя
+  var avs = box.querySelectorAll(".msg-avatar");
+  for (var a = 0; a < avs.length; a++) avs[a].onclick = function () {
+    openProfile(parseInt(this.getAttribute("data-uid"), 10));
+  };
+  // кнопка выбора реакции
+  var rbtns = box.querySelectorAll(".msg-react-btn");
+  for (var rb = 0; rb < rbtns.length; rb++) rbtns[rb].onclick = function (ev) {
+    ev.stopPropagation();
+    toggleMsgPicker(parseInt(this.getAttribute("data-mid"), 10));
+  };
   var dels = box.querySelectorAll(".msg-del");
   for (var j = 0; j < dels.length; j++) dels[j].onclick = function () {
     var mid = parseInt(this.getAttribute("data-mid"), 10);
@@ -786,6 +810,7 @@ function avatarHtml(name, avatar, sizeCls) {
   var letter = esc(((name || "?").trim().charAt(0) || "?").toUpperCase());
   var cls = "avatar " + (sizeCls || "sm");
   var url = avatarUrl(avatar);
+  var clsAttr = 'class="' + cls + '"';
   if (url) {
     return '<div class="' + cls + ' has-img" style="background-image:url(\'' + url + '\')"></div>';
   }
@@ -794,7 +819,22 @@ function avatarHtml(name, avatar, sizeCls) {
   var idx = 0;
   var s = (name || "?");
   for (var i = 0; i < s.length; i++) idx = (idx * 31 + s.charCodeAt(i)) % 997;
-  return '<div class="' + cls + " " + palette[idx % palette.length] + '">' + letter + "</div>";
+  return "<div " + clsAttr + " " + palette[idx % palette.length] + ">" + letter + "</div>";
+}
+
+// Аватар с кликом по профилю: data-uid + класс js-avatar (или msg-avatar в чате)
+function avatarClickHtml(name, avatar, sizeCls, uid) {
+  var h = avatarHtml(name, avatar, sizeCls);
+  return h.replace('class="avatar', 'data-uid="' + uid + '" class="avatar js-avatar');
+}
+
+// клик по аватару в списке/профиле -> открыть профиль пользователя
+function bindAvatarProfiles(root) {
+  if (!root) return;
+  var els = root.querySelectorAll(".js-avatar[data-uid]");
+  for (var i = 0; i < els.length; i++) els[i].onclick = function () {
+    openProfile(parseInt(this.getAttribute("data-uid"), 10));
+  };
 }
 
 function fmtSeen(ts) {
@@ -992,6 +1032,9 @@ function connectSocket() {
     state.sock.on("message_deleted", function (d) {
       state.messages = state.messages.filter(function (x) { return x.id !== d.id; });
       renderMessages(); refreshDialogs();
+    });
+    state.sock.on("message_reactions", function (d) {
+      applyReactions(d.id, d.reactions);
     });
     state.sock.on("contact_added", function () { refreshContacts(); });
     state.sock.on("group_invite", function (g) {

@@ -392,6 +392,7 @@ def _with_reactions(rows, user_id):
 def message_with_names(mid, viewer_id=None):
     c = _connect()
     r = c.execute("SELECT m.*, u.username AS sender_username, u.display_name AS sender_name,"
+                  " COALESCE(u.avatar,'') AS sender_avatar,"
                   " f.filename, f.mimetype, f.size FROM messages m JOIN users u ON u.id=m.sender_id"
                   " LEFT JOIN files f ON f.id=m.file_id WHERE m.id=?", (mid,)).fetchone()
     if not r:
@@ -407,6 +408,7 @@ def chat_messages(chat_type, chat_id, user_id, limit=100):
     c = _connect()
     if chat_type == "dm":
         rows = c.execute("SELECT m.*, u.username AS sender_username, u.display_name AS sender_name,"
+                         " COALESCE(u.avatar,'') AS sender_avatar,"
                          " f.filename, f.mimetype, f.size FROM messages m"
                          " JOIN users u ON u.id=m.sender_id LEFT JOIN files f ON f.id=m.file_id"
                          " WHERE m.deleted=0 AND m.chat_type='dm' AND ("
@@ -417,6 +419,7 @@ def chat_messages(chat_type, chat_id, user_id, limit=100):
         return _with_reactions([dict(r) for r in reversed(rows)], user_id)
     else:
         rows = c.execute("SELECT m.*, u.username AS sender_username, u.display_name AS sender_name,"
+                         " COALESCE(u.avatar,'') AS sender_avatar,"
                          " f.filename, f.mimetype, f.size FROM messages m"
                          " JOIN users u ON u.id=m.sender_id LEFT JOIN files f ON f.id=m.file_id"
                          " WHERE m.deleted=0 AND m.chat_type='group' AND m.group_id=?"
