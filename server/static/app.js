@@ -641,46 +641,105 @@ function renderMessages() {
   if (state.tab === "admin") return; // #msgs-box сейчас занят админкой
   var box = $("#msgs-box");
   if (!box) return;
-  var html = "";
+  // Полная перерисовка: контейнер .msgs-box — flex-колонка, каждый элемент
+  // .msg создаётся ОТДЕЛЬНЫМ узлом через createElement и добавляется appendChild.
+  // innerHTML+= для всей простыни HTML больше не используется — это исключает
+  // ситуацию «всё в одном блоке» (незакрытый/лишний тег когда-либо склеивал
+  // сообщения в один div и они начинали налагаться друг на друга).
+  box.textContent = "";
   for (var i = 0; i < state.messages.length; i++) {
     var m = state.messages[i];
     var mine = m.sender_id === state.me.id;
     var canDel = mine || state.me.role === "admin";
-    html += '<div class="msg' + (mine ? " mine" : "") + '" data-mid="' + m.id + '">' +
-      // аватар отправителя: кликабельный (открывает профиль); data-uid — отдельный атрибут
-      (mine ? "" : avatarClickHtml(m.sender_name, m.sender_avatar, "xs", m.sender_id).replace("js-avatar", "js-avatar msg-avatar")) +
-      '<div class="msg-body">' +
-      '<div class="msg-author">' + (mine ? "" : esc(m.sender_name)) + "</div>" +
-      '<div class="msg-bubble"><div class="msg-text"></div><span class="msg-time">' + fmtTime(m.created_at) + "</span>" +
-      (m.file_id ? fileLink(m) : "") +
-      reactionsHtml(m) +
-      (canDel ? '<button class="msg-del" data-mid="' + m.id + '" title="Удалить">🗑</button>' : "") +
-      "</div></div>";
+
+    var row = document.createElement("div");
+    row.className = "msg" + (mine ? " mine" : "");
+    row.setAttribute("data-mid", m.id);
+
+    if (!mine) {
+      var avHtml = avatarClickHtml(m.sender_name, m.sender_avatar, "xs", m.sender_id)
+        .replace("js-avatar", "js-avatar msg-avatar");
+      var tmp = document.createElement("div");
+      tmp.innerHTML = avHtml;
+      row.appendChild(tmp.firstChild);
+    }
+
+    var bodyEl = document.createElement("div");
+    bodyEl.className = "msg-body";
+
+    var author = document.createElement("div");
+    author.className = "msg-author";
+    author.textContent = mine ? "" : String(m.sender_name || "");
+    bodyEl.appendChild(author);
+
+    var bubble = document.createElement("div");
+    bubble.className = "msg-bubble";
+
+    var textEl = document.createElement("div");
+    textEl.className = "msg-text";
+    renderEmojiInto(textEl, m.text);
+    bubble.appendChild(textEl);
+
+    var timeEl = document.createElement("span");
+    timeEl.className = "msg-time";
+    timeEl.textContent = fmtTime(m.created_at);
+    bubble.appendChild(timeEl);
+
+    if (m.file_id) {
+      var fWrap = document.createElement("div");
+      fWrap.innerHTML = fileLink(m); // ссылка на файл нашего сервера, имя экранировано в fileLink
+      bubble.appendChild(fWrap.firstChild);
+    }
+
+    var chipBox = document.createElement("div");
+    chipBox.className = "msg-reactions";
+    var rlist = m.reactions || [];
+    for (var ri = 0; ri < rlist.length; ri++) {
+      var chip = document.createElement("span");
+      chip.className = "react-chip" + (rlist[ri].mine ? " mine" : "");
+      chip.textContent = rlist[ri].emoji + " " + rlist[ri].count;
+      chipBox.appendChild(chip);
+    }
+    bubble.appendChild(chipBox);
+
+    var reactBtn = document.createElement("button");
+    reactBtn.className = "msg-react-btn";
+    reactBtn.setAttribute("data-mid", m.id);
+    reactBtn.setAttribute("title", "Реакция");
+    reactBtn.textContent = "😊";
+    reactBtn.onclick = function (ev) {
+      ev.stopPropagation();
+      toggleMsgPicker(parseInt(this.getAttribute("data-mid"), 10));
+    };
+    bubble.appendChild(reactBtn);
+
+    if (canDel) {
+      var delBtn = document.createElement("button");
+      delBtn.className = "msg-del";
+      delBtn.setAttribute("data-mid", m.id);
+      delBtn.setAttribute("title", "Удалить");
+      delBtn.textContent = "🗑";
+      delBtn.onclick = function () {
+        var mid = parseInt(this.getAttribute("data-mid"), 10);
+        if (!confirm("Удалить сообщение?")) return;
+        api("/api/messages/" + mid, { method: "DELETE" }).then(function () {
+          loadMessages(true); refreshDialogs();
+        })["catch"](function (e) { showErr(e.message); });
+      };
+      bubble.appendChild(delBtn);
+    }
+
+    bodyEl.appendChild(bubble);
+    row.appendChild(bodyEl);
+
+    // клик по аватару отправителя -> профиль пользователя
+    var av = row.querySelector(".msg-avatar");
+    if (av) av.onclick = function () {
+      openProfile(parseInt(this.getAttribute("data-uid"), 10));
+    };
+
+    box.appendChild(row);
   }
-  box.innerHTML = html;
-  var texts = box.querySelectorAll(".msg-text");
-  for (var k = 0; k < texts.length; k++) {
-    renderEmojiInto(texts[k], state.messages[k].text);
-  }
-  // клик по аватару отправителя -> профиль пользователя
-  var avs = box.querySelectorAll(".msg-avatar");
-  for (var a = 0; a < avs.length; a++) avs[a].onclick = function () {
-    openProfile(parseInt(this.getAttribute("data-uid"), 10));
-  };
-  // кнопка выбора реакции
-  var rbtns = box.querySelectorAll(".msg-react-btn");
-  for (var rb = 0; rb < rbtns.length; rb++) rbtns[rb].onclick = function (ev) {
-    ev.stopPropagation();
-    toggleMsgPicker(parseInt(this.getAttribute("data-mid"), 10));
-  };
-  var dels = box.querySelectorAll(".msg-del");
-  for (var j = 0; j < dels.length; j++) dels[j].onclick = function () {
-    var mid = parseInt(this.getAttribute("data-mid"), 10);
-    if (!confirm("Удалить сообщение?")) return;
-    api("/api/messages/" + mid, { method: "DELETE" }).then(function () {
-      loadMessages(true); refreshDialogs();
-    })["catch"](function (e) { showErr(e.message); });
-  };
   box.scrollTop = box.scrollHeight;
 }
 
@@ -817,7 +876,6 @@ function avatarHtml(name, avatar, sizeCls) {
   var letter = esc(((name || "?").trim().charAt(0) || "?").toUpperCase());
   var cls = "avatar " + (sizeCls || "sm");
   var url = avatarUrl(avatar);
-  var clsAttr = 'class="' + cls + '"';
   if (url) {
     return '<div class="' + cls + ' has-img" style="background-image:url(\'' + url + '\')"></div>';
   }
@@ -826,7 +884,10 @@ function avatarHtml(name, avatar, sizeCls) {
   var idx = 0;
   var s = (name || "?");
   for (var i = 0; i < s.length; i++) idx = (idx * 31 + s.charCodeAt(i)) % 997;
-  return "<div " + clsAttr + " " + palette[idx % palette.length] + ">" + letter + "</div>";
+  // ВАЖНО: класс цвета — часть атрибута class. Раньше сюда вставлялся отдельный
+  // «атрибут» вида `<div class="..." av-red>` — невалидный HTML, из-за чего аватар
+  // не получал размеры/фон и наложение сообщений выглядело особенно странно.
+  return '<div class="' + cls + " " + palette[idx % palette.length] + '">' + letter + "</div>";
 }
 
 // Аватар с кликом по профилю: data-uid + класс js-avatar (или msg-avatar в чате).
@@ -979,28 +1040,27 @@ function toggleMsgPicker(mid) {
   for (var i = 0; i < REACT_EMOJIS.length; i++)
     html += '<button class="react-opt" data-emoji="' + REACT_EMOJIS[i] + '">' + REACT_EMOJIS[i] + "</button>";
   picker.innerHTML = html;
-  // пикер крепим к строке сообщения (.msg), а не к пузырю: у .msg есть
-  // position:relative, поэтому панель появляется точно рядом с сообщением.
+  // Пикер крепим к строке сообщения (.msg, position:relative) и всегда
+  // показываем НИЖЕ сообщения (как просил пользователь). Если до самого низа
+  // окна не хватает места — переворачиваем над сообщением.
   msgEl.appendChild(picker);
-  // автопозиционирование: над/под/левее — в зависимости от места в окне
   try {
     var r = bubble.getBoundingClientRect();
-    picker.style.visibility = "hidden";
-    picker.style.left = ""; picker.style.right = ""; picker.style.top = ""; picker.style.bottom = "";
-    var pw2 = picker.offsetWidth || 240, ph = picker.offsetHeight || 40;
     var vh = window.innerHeight || document.documentElement.clientHeight;
     var vw = window.innerWidth || document.documentElement.clientWidth;
-    // по вертикали: сверху если хватает места, иначе снизу
-    if (r.top - ph - 10 > 0) picker.style.bottom = "calc(100% + 6px)";
-    else picker.style.top = (r.bottom - msgEl.getBoundingClientRect().top + 6) + "px";
-    // по горизонтали: прижимаем к краю пузыря, но не даём вылезти за окно
+    var ph = picker.offsetHeight || 40;
+    picker.style.left = ""; picker.style.right = ""; picker.style.bottom = "";
+    if (r.bottom + ph + 12 < vh) {
+      picker.style.top = "calc(100% + 6px)"; // стандартно — под сообщением
+    } else {
+      picker.style.top = ""; picker.style.bottom = "calc(100% + 6px)"; // в самом низу — над
+    }
     var mine = msgEl.classList.contains("mine");
-    if (mine) picker.style.left = "auto"; else picker.style.right = "auto";
-    if (mine) picker.style.right = "0"; else picker.style.left = "0";
+    if (mine) { picker.style.left = "auto"; picker.style.right = "0"; }
+    else { picker.style.right = "auto"; picker.style.left = "0"; }
     var pr = picker.getBoundingClientRect();
     if (pr.left < 4 && !mine) picker.style.left = (4 - pr.left) + "px";
     if (pr.right > vw - 4 && mine) picker.style.right = (pr.right - (vw - 4)) + "px";
-    picker.style.visibility = "";
   } catch (e) {}
   var opts = picker.querySelectorAll(".react-opt");
   for (var j = 0; j < opts.length; j++) opts[j].onclick = function (ev) {

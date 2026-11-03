@@ -167,7 +167,7 @@ input:focus, select:focus { outline: none; border-bottom-color: #3390ec; }
 .msg.mine .msg-time { color: #6cc167; }
 .msg-del {
   position: absolute; top: 4px; right: 4px; opacity: 0; border: none; background: rgba(255,255,255,.85);
-  font-size: 13px; padding: 1px 6px; border-radius: 10px; transition: opacity .15s; color: #e5484d;
+  font-size: 13px; padding: 1px 6px; border-radius: 10px; transition: opacity .15s; color: #e5484d; cursor: pointer;
 }
 .msg.mine .msg-del { right: auto; left: 4px; }
 .msg:hover .msg-del { opacity: 1; }
@@ -357,7 +357,8 @@ body[data-theme="dark"] .member-row { border-bottom-color: #242f3d; }
 .js-avatar:hover, .msg-avatar:hover { filter: brightness(1.08); }
 
 /* ===== сообщения: аватар слева + пузырь (flex-поток в .msgs-box) ===== */
-.msg { display: flex; align-items: flex-end; gap: 8px; max-width: 78%; background: transparent; box-shadow: none; padding: 0; margin-bottom: 8px; position: relative; }
+.msgs-box { display: flex; flex-direction: column; }
+.msg { display: flex; align-items: flex-end; gap: 8px; max-width: 78%; background: transparent; box-shadow: none; padding: 0; margin-bottom: 8px; position: relative; flex-shrink: 0; }
 .msg.mine { margin-left: auto; }
 .msg .msg-avatar { margin-bottom: 2px; }
 .msg-body { min-width: 0; }
@@ -384,7 +385,7 @@ body[data-theme="dark"] .member-row { border-bottom-color: #242f3d; }
 .msg:hover .msg-react-btn { opacity: 1; }
 [data-theme="dark"] .msg-react-btn { background: rgba(23,33,43,.85); }
 .react-picker {
-  position: absolute; bottom: calc(100% + 4px); right: 0; z-index: 30;
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 30;
   background: #fff; border-radius: 22px; padding: 4px 8px; display: flex; gap: 2px;
   box-shadow: 0 4px 18px rgba(0,0,0,.25); animation: pop .12s ease-out;
 }
