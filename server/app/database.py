@@ -71,6 +71,13 @@ CREATE TABLE IF NOT EXISTS contacts (
     created_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, contact_id)
 );
+CREATE TABLE IF NOT EXISTS reactions (
+    message_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    emoji TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (message_id, user_id, emoji)
+);
 """
 
 def _connect():
@@ -123,7 +130,107 @@ def _migrate():
         c.execute("ALTER TABLE users ADD COLUMN last_seen INTEGER NOT NULL DEFAULT 0")
     if "is_active" not in cols:
         c.execute("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
+    if "avatar" not in cols:
+        c.execute("ALTER TABLE users ADD COLUMN avatar TEXT NOT NULL DEFAULT ''")
+    if "bio" not in cols:
+        c.execute("ALTER TABLE users ADD COLUMN bio TEXT NOT NULL DEFAULT ''")
     c.commit(); c.close()
+
+# ---------------- аватары / профиль ----------------
+
+AVATAR_DIR = os.path.join(BASE_DIR, "..", "avatars")
+ALLOWED_AVATAR_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+
+def set_avatar(user_id, stored_name):
+    with tx() as c:
+        c.execute("UPDATE users SET avatar=? WHERE id=?", (stored_name or "", user_id))
+
+def set_bio(user_id, bio):
+    with tx() as c:
+        c.execute("UPDATE users SET bio=? WHERE id=?", ((bio or "")[:200], user_id))
+
+def clear_old_avatar(stored_name):
+    """Удалить старый файл аватара из AVATAR_DIR (если он наш)."""
+    try:
+        if stored_name and os.path.basename(stored_name) == stored_name:
+            p = os.path.join(AVATAR_DIR, stored_name)
+            if os.path.exists(p): os.remove(p)
+    except OSError: pass
+
+def profile_public(user_id):
+    """Публичная карточка профиля + количество общих групп."""
+    c = _connect()
+    u = c.execute("SELECT id, username, display_name, role, status, last_seen, is_active,"
+                  " avatar, bio FROM users WHERE id=?", (user_id,)).fetchone()
+    if not u:
+        c.close(); return None
+    d = dict(u)
+    mutual = [r["gid"] for r in c.execute(
+        "SELECT gm.group_id AS gid FROM group_members gm WHERE gm.user_id=?", (user_id,)).fetchall()]
+    common_groups = []
+    if mutual:
+        marks = ",".join("?" * len(mutual))
+        rows = c.execute("SELECT g.id, g.name FROM groups g WHERE g.id IN (%s)" % marks, mutual).fetchall()
+        common_groups = [dict(r) for r in rows]
+    c.close()
+    d["common_groups"] = common_groups
+    return d
+
+# ---------------- реакции на сообщения ----------------
+
+EMOJI_ALLOWED = {"👍", "❤️", "😂", "😮", "😢", "🔥", "👎", "✅"}
+
+def toggle_reaction(msg_id, user_id, emoji):
+    """Добавляет/снимает реакцию. Возвращает актуальный список реакций по сообщению."""
+    if emoji not in EMOJI_ALLOWED: raise ValueError("Недопустимая реакция")
+    with tx() as c:
+        exists = c.execute("SELECT 1 FROM reactions WHERE message_id=? AND user_id=? AND emoji=?",
+                           (msg_id, user_id, emoji)).fetchone()
+        if exists:
+            c.execute("DELETE FROM reactions WHERE message_id=? AND user_id=? AND emoji=?",
+                      (msg_id, user_id, emoji))
+        else:
+            # один пользователь — одна реакция на сообщение (как в Telegram): снимаем прежнюю
+            c.execute("DELETE FROM reactions WHERE message_id=? AND user_id=?", (msg_id, user_id))
+            c.execute("INSERT INTO reactions(message_id, user_id, emoji, created_at) VALUES(?,?,?,?)",
+                      (msg_id, user_id, emoji, int(time.time())))
+    return reactions_for(msg_id)
+
+def reactions_for(msg_id):
+    c = _connect()
+    rows = c.execute("SELECT emoji, COUNT(*) n, MAX(user_id=?) mine FROM reactions"
+                     " WHERE message_id=? GROUP BY emoji ORDER BY n DESC", (msg_id,)).fetchall()
+    c.close()
+    return [{"emoji": r["emoji"], "count": r["n"], "mine": bool(r["mine"])} for r in rows]
+
+def reactions_map(msg_ids):
+    """{message_id: [ {emoji,count,mine} ]} одним запросом (mine заполняется отдельно)."""
+    if not msg_ids: return {}
+    marks = ",".join("?" * len(msg_ids))
+    out = {}
+    c = _connect()
+    rows = c.execute(
+        "SELECT message_id, emoji, COUNT(*) n FROM reactions WHERE message_id IN (%s)"
+        " GROUP BY message_id, emoji ORDER BY n DESC" % marks, tuple(msg_ids)).fetchall()
+    c.close()
+    for r in rows:
+        out.setdefault(r["message_id"], []).append({"emoji": r["emoji"], "count": r["n"], "mine": False})
+    return out
+
+def attach_mine_reactions(msg_ids, user_id):
+    """Дополнить reactions_map флагом 'mine' для конкретного пользователя."""
+    if not msg_ids: return {}
+    m = reactions_map(msg_ids)
+    marks = ",".join("?" * len(msg_ids))
+    c = _connect()
+    rows = c.execute("SELECT message_id, emoji FROM reactions WHERE user_id=? AND message_id IN (%s)"
+                     % marks, tuple([user_id] + list(msg_ids))).fetchall()
+    c.close()
+    mine = {(r["message_id"], r["emoji"]) for r in rows}
+    for mid, lst in m.items():
+        for item in lst:
+            item["mine"] = (mid, item["emoji"]) in mine
+    return m
 
 def hash_password(password, salt=None):
     if salt is None: salt = secrets.token_hex(16)
@@ -156,7 +263,8 @@ def get_user(user_id):
 
 def list_users(include_blocked=False):
     c = _connect()
-    q = ("SELECT id, username, display_name, role, status, last_seen, is_active FROM users"
+    q = ("SELECT id, username, display_name, role, status, last_seen, is_active,"
+         " COALESCE(avatar,'') AS avatar FROM users"
          + ("" if include_blocked else " WHERE is_active=1") + " ORDER BY username")
     rows = c.execute(q).fetchall(); c.close()
     return [dict(r) for r in rows]
@@ -207,6 +315,7 @@ def delete_user(user_id):
                                     " ORDER BY CASE WHEN u.role='admin' THEN 0 ELSE 1 END LIMIT 1", (gid,)).fetchone()
                     if adm: c.execute("UPDATE groups SET owner_id=? WHERE id=?", (adm["user_id"], gid))
         c.execute("DELETE FROM contacts WHERE user_id=? OR contact_id=?", (user_id, user_id))
+        c.execute("DELETE FROM reactions WHERE user_id=?", (user_id,))
         c.execute("DELETE FROM reads WHERE user_id=?", (user_id,))
         c.execute("DELETE FROM tokens WHERE user_id=?", (user_id,))
         c.execute("DELETE FROM users WHERE id=?", (user_id,))
@@ -226,9 +335,13 @@ def is_contact(user_id, contact_id):
     r = c.execute("SELECT 1 FROM contacts WHERE user_id=? AND contact_id=?", (user_id, contact_id)).fetchone()
     c.close(); return r is not None
 
+def _avatar_of(c, uid):
+    r = c.execute("SELECT avatar FROM users WHERE id=?", (uid,)).fetchone()
+    return (r["avatar"] or "") if r else ""
+
 def list_contacts(user_id):
     c = _connect()
-    rows = c.execute("SELECT u.id, u.username, u.display_name, u.status, u.last_seen,"
+    rows = c.execute("SELECT u.id, u.username, u.display_name, u.status, u.last_seen, u.avatar,"
                      " (SELECT m.text FROM messages m WHERE m.chat_type='dm' AND m.deleted=0"
                      "   AND ((m.sender_id=? AND m.group_id=u.id) OR (m.sender_id=u.id AND m.group_id=?))"
                      "   ORDER BY m.id DESC LIMIT 1) AS last_text,"
@@ -241,7 +354,7 @@ def list_contacts(user_id):
     c.close()
     out = []
     for r in rows:
-        d = dict(r); d["unread"] = unread_count(user_id, "dm:%d" % d["id"]); out.append(d)
+        d = dict(r); d["unread"] = unread_count(user_id, chat_key_for(user_id, "dm", d["id"])); out.append(d)
     return out
 
 def chat_key_for(user_id, chat_type, chat_id):
@@ -268,12 +381,27 @@ def insert_message(chat_type, sender_id, text="", group_id=None, file_id=None, p
                             " VALUES('group', ?,?,?,?,?)", (group_id, sender_id, text, file_id, int(time.time())))
         return cur.lastrowid
 
-def message_with_names(mid):
+def _with_reactions(rows, user_id):
+    """Добавить каждому сообщению поле reactions (список {emoji,count,mine})."""
+    ids = [r["id"] for r in rows]
+    m = attach_mine_reactions(ids, user_id) if ids else {}
+    for r in rows:
+        r["reactions"] = m.get(r["id"], [])
+    return rows
+
+def message_with_names(mid, viewer_id=None):
     c = _connect()
     r = c.execute("SELECT m.*, u.username AS sender_username, u.display_name AS sender_name,"
                   " f.filename, f.mimetype, f.size FROM messages m JOIN users u ON u.id=m.sender_id"
                   " LEFT JOIN files f ON f.id=m.file_id WHERE m.id=?", (mid,)).fetchone()
-    c.close(); return dict(r) if r else None
+    if not r:
+        c.close(); return None
+    d = dict(r)
+    if viewer_id is not None:
+        d["reactions"] = attach_mine_reactions([mid], viewer_id).get(mid, [])
+    else:
+        d["reactions"] = reactions_map([mid]).get(mid, [])
+    c.close(); return d
 
 def chat_messages(chat_type, chat_id, user_id, limit=100):
     c = _connect()
@@ -285,14 +413,16 @@ def chat_messages(chat_type, chat_id, user_id, limit=100):
                          "  (m.sender_id=? AND m.group_id=?) OR (m.sender_id=? AND m.group_id=?))"
                          " ORDER BY m.id DESC LIMIT ?",
                          (user_id, chat_id, chat_id, user_id, limit)).fetchall()
+        c.close()
+        return _with_reactions([dict(r) for r in reversed(rows)], user_id)
     else:
         rows = c.execute("SELECT m.*, u.username AS sender_username, u.display_name AS sender_name,"
                          " f.filename, f.mimetype, f.size FROM messages m"
                          " JOIN users u ON u.id=m.sender_id LEFT JOIN files f ON f.id=m.file_id"
                          " WHERE m.deleted=0 AND m.chat_type='group' AND m.group_id=?"
                          " ORDER BY m.id DESC LIMIT ?", (chat_id, limit)).fetchall()
-    c.close()
-    return [dict(r) for r in reversed(rows)]
+        c.close()
+        return _with_reactions([dict(r) for r in reversed(rows)], user_id)
 
 def mark_read(user_id, chat_key, msg_id):
     # Отметка о прочтении не должна уменьшать уже сохранённую метку.
@@ -359,7 +489,9 @@ def delete_message(mid, hard=False):
     c = _connect(); r = c.execute("SELECT * FROM messages WHERE id=?", (mid,)).fetchone(); c.close()
     if not r: return None
     with tx() as c:
-        if hard: c.execute("DELETE FROM messages WHERE id=?", (mid,))
+        if hard:
+            c.execute("DELETE FROM reactions WHERE message_id=?", (mid,))
+            c.execute("DELETE FROM messages WHERE id=?", (mid,))
         else: c.execute("UPDATE messages SET deleted=1 WHERE id=?", (mid,))
     return dict(r)
 
@@ -491,20 +623,22 @@ def dialogs(user_id):
         if other and other != user_id:
             peers[other] = True
     for ct in list_contacts(user_id):
-        key = "dm:%d" % ct["id"]
+        key = chat_key_for(user_id, "dm", ct["id"])
         seen[key] = True
         peers[ct["id"]] = True
         items.append({"type": "dm", "id": ct["id"], "name": ct["display_name"],
+                      "avatar": ct.get("avatar", ""),
                       "unread": unread_count(user_id, key), "status": ct["status"],
                       "last_text": ct.get("last_text"), "last_time": ct.get("last_time"), "contact": True})
     for pid in peers:
-        key = "dm:%d" % pid
+        key = chat_key_for(user_id, "dm", pid)
         if key in seen: continue
         u = get_user(pid)
         if not u or not u["is_active"]: continue
         seen[key] = True
         _t, _ts = last_dm_text(user_id, pid)
         items.append({"type": "dm", "id": pid, "name": u["display_name"],
+                      "avatar": (u["avatar"] if "avatar" in u.keys() else "") or "",
                       "unread": unread_count(user_id, key), "status": u["status"],
                       "last_text": _t, "last_time": _ts})
     return items

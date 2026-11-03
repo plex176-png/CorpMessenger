@@ -131,8 +131,70 @@ def logout(u):
 @auth_required
 def me(u):
     return jsonify({"id": u["id"], "username": u["username"], "display_name": u["display_name"],
-                    "role": u["role"], "status": u["status"],
+                    "role": u["role"], "status": u["status"], "avatar": u["avatar"] if "avatar" in u.keys() else "",
+                    "bio": u["bio"] if "bio" in u.keys() else "",
                     "unread_total": db.total_unread(u["id"])})
+
+
+@app.route("/api/profile/<int:uid>")
+@auth_required
+def profile_view(u, uid):
+    """Публичная карточка пользователя (для просмотра профиля)."""
+    p = db.profile_public(uid)
+    if not p or not p["is_active"]:
+        return jsonify({"error": "Пользователь не найден"}), 404
+    if u["role"] != "admin":
+        p.pop("last_seen", None) if False else None
+    p["is_me"] = (p["id"] == u["id"])
+    return jsonify(p)
+
+
+@app.route("/api/avatar", methods=["POST"])
+@auth_required
+def set_my_avatar(u):
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"error": "Файл не передан"}), 400
+    ext = os.path.splitext(f.filename)[1].lower()
+    if ext not in db.ALLOWED_AVATAR_EXT:
+        return jsonify({"error": "Допустимы изображения PNG/JPG/GIF/WEBP"}), 400
+    stored = "%s%s" % (uuid.uuid4().hex, ext)
+    os.makedirs(db.AVATAR_DIR, exist_ok=True)
+    path = os.path.join(db.AVATAR_DIR, stored)
+    f.save(path)
+    if os.path.getsize(path) > 5 * 1024 * 1024:
+        os.remove(path)
+        return jsonify({"error": "Файл больше 5 МБ"}), 400
+    old = u["avatar"] if "avatar" in u.keys() else ""
+    db.set_avatar(u["id"], stored)
+    db.clear_old_avatar(old)
+    return jsonify({"ok": True, "avatar": stored})
+
+
+@app.route("/api/avatar", methods=["DELETE"])
+@auth_required
+def remove_my_avatar(u):
+    old = u["avatar"] if "avatar" in u.keys() else ""
+    db.set_avatar(u["id"], "")
+    db.clear_old_avatar(old)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/bio", methods=["POST"])
+@auth_required
+def set_my_bio(u):
+    data = request.get_json(silent=True) or {}
+    db.set_bio(u["id"], data.get("bio", ""))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/avatars/<name>")
+def avatar_file(name):
+    """Отдача файла аватара (публично — аватар не является секретом)."""
+    safe = os.path.basename(name or "")
+    if not safe or os.path.splitext(safe)[1].lower() not in db.ALLOWED_AVATAR_EXT:
+        return jsonify({"error": "not found"}), 404
+    return send_from_directory(os.path.abspath(db.AVATAR_DIR), safe)
 
 
 @app.route("/api/status", methods=["POST"])
@@ -156,7 +218,27 @@ def dialogs(u):
 @app.route("/api/users")
 @auth_required
 def users(u):
-    return jsonify([x for x in db.list_users() if x["id"] != u["id"]])
+    rows = db.list_users()
+    out = []
+    for x in rows:
+        if x["id"] == u["id"]: continue
+        x["avatar"] = x.get("avatar", "")
+        out.append(x)
+    return jsonify(out)
+
+
+@app.route("/api/users/search")
+@auth_required
+def users_search(u):
+    q = (request.args.get("q") or "").strip().lower()
+    res = []
+    for x in db.list_users():
+        if x["id"] == u["id"]: continue
+        hay = " ".join([x["username"], x["display_name"]]).lower()
+        if not q or q in hay:
+            x["avatar"] = x.get("avatar", "")
+            res.append(x)
+    return jsonify(res[:50])
 
 
 @app.route("/api/contacts")
@@ -243,9 +325,38 @@ def send_message(u):
         recips = [m["user_id"] for m in gi["members"]]
     else:
         return jsonify({"error": "Неверный тип чата"}), 400
-    msg = db.message_with_names(mid)
+    msg = db.message_with_names(mid, viewer_id=u["id"])
     _pub_message(msg, recips)
     return jsonify(msg)
+
+
+@app.route("/api/messages/<int:mid>/react", methods=["POST"])
+@auth_required
+def react_msg(u, mid):
+    # проверка доступа к сообщению
+    conn = db._connect()
+    row = conn.execute("SELECT * FROM messages WHERE id=? AND deleted=0", (mid,)).fetchone()
+    conn.close()
+    if not row:
+        return jsonify({"error": "Сообщение не найдено"}), 404
+    row = dict(row)
+    if row["chat_type"] == "group":
+        if not db.in_group(row["group_id"], u["id"]):
+            return jsonify({"error": "Нет доступа"}), 403
+        gi = db.group_info(row["group_id"])
+        recips = [mm["user_id"] for mm in gi["members"]] if gi else []
+    else:
+        recips = _dm_recipients(row["sender_id"], row["group_id"])
+    d = request.get_json(force=True, silent=True) or {}
+    emoji = (d.get("emoji") or "").strip()
+    try:
+        reactions = db.toggle_reaction(mid, u["id"], emoji)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    payload = {"id": mid, "reactions": reactions}
+    for uid in recips:
+        socketio.emit("message_reactions", payload, room="user_%s" % uid)
+    return jsonify(payload)
 
 
 @app.route("/api/messages/<int:mid>/read", methods=["POST"])

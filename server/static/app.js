@@ -772,6 +772,207 @@ function renderAdmin(body) {
 }
 
 // ---------- WebSocket + фолбэк-опрос ----------
+// ---------- аватары и профиль ----------
+var REACT_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥", "👎", "✅"];
+
+function avatarUrl(a) {
+  if (!a) return "";
+  if (/^https?:/.test(a)) return a;
+  return state.base + "/api/avatars/" + encodeURIComponent(a);
+}
+
+// Возвращает HTML кружка: картинка, если есть аватар, иначе буква + класс цвета.
+function avatarHtml(name, avatar, sizeCls) {
+  var letter = esc(((name || "?").trim().charAt(0) || "?").toUpperCase());
+  var cls = "avatar " + (sizeCls || "sm");
+  var url = avatarUrl(avatar);
+  if (url) {
+    return '<div class="' + cls + ' has-img" style="background-image:url(\'' + url + '\')"></div>';
+  }
+  // стабильный цвет по первому символу имени (как градиенты Telegram)
+  var palette = ["av-red", "av-orange", "av-violet", "av-green", "av-cyan", "av-blue", "av-pink"];
+  var idx = 0;
+  var s = (name || "?");
+  for (var i = 0; i < s.length; i++) idx = (idx * 31 + s.charCodeAt(i)) % 997;
+  return '<div class="' + cls + " " + palette[idx % palette.length] + '">' + letter + "</div>";
+}
+
+function fmtSeen(ts) {
+  if (!ts) return "был(а) недавно";
+  var d = new Date(ts * 1000), now = new Date();
+  var sameDay = d.toDateString() === now.toDateString();
+  var hhmm = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2);
+  if (sameDay) return "был(а) в " + hhmm;
+  var dd = ("0" + d.getDate()).slice(-2) + "." + ("0" + (d.getMonth() + 1)).slice(-2);
+  return "был(а) " + dd + " в " + hhmm;
+}
+
+function openProfile(uid) {
+  api("/api/profile/" + uid).then(function (p) {
+    var overlay = document.getElementById("profile-overlay");
+    if (!overlay) {
+      overlay = document.createElement("div");
+      overlay.id = "profile-overlay";
+      overlay.className = "modal hidden";
+      document.body.appendChild(overlay);
+    }
+    var stTxt = p.status === "online" ? "в сети" : p.status === "away" ? "отошёл" : fmtSeen(p.last_seen);
+    var groupsHtml = "";
+    if (p.common_groups && p.common_groups.length) {
+      groupsHtml = '<div class="prof-groups"><div class="muted small">Общие группы: ' +
+        p.common_groups.length + "</div>";
+      for (var g = 0; g < Math.min(p.common_groups.length, 5); g++)
+        groupsHtml += '<span class="chip">' + esc(p.common_groups[g].name) + "</span>";
+      groupsHtml += "</div>";
+    }
+    overlay.innerHTML =
+      '<div class="modal-box prof-box">' +
+      '<button class="ghost sm prof-close" id="prof-close">✕</button>' +
+      '<div class="prof-top">' + avatarHtml(p.display_name, p.avatar, "lg") +
+      '<div><div class="prof-name">' + esc(p.display_name) + "</div>" +
+      '<div class="prof-sub">@' + esc(p.username) + (p.role === "admin" ? " · администратор" : "") + "</div></div></div>" +
+      '<div class="prof-status ' + (p.status === "online" ? "online" : "") + '">' + stTxt + "</div>" +
+      (p.bio ? '<div class="prof-bio">' + esc(p.bio) + "</div>" : "") +
+      groupsHtml +
+      '<div class="form-inline prof-actions">' +
+      (p.is_me
+        ? '<button class="ghost" id="prof-edit-avatar">Сменить аватар</button>' +
+          '<button class="ghost" id="prof-del-avatar">Удалить аватар</button>' +
+          '<input id="prof-bio" maxlength="200" placeholder="О себе…" value="' + esc(p.bio || "") + '">' +
+          '<button class="primary" id="prof-save-bio">Сохранить</button>'
+        : '<button class="primary" id="prof-write">Написать сообщение</button>' +
+          '<button class="ghost" id="prof-add-contact">Добавить в контакты</button>') +
+      "</div></div>";
+    overlay.classList.remove("hidden");
+    bindClick(overlay, "#prof-close", function () { overlay.classList.add("hidden"); }, "#prof-close");
+    if (p.is_me) {
+      bindClick(overlay, "#prof-edit-avatar", function () {
+        var inp = document.createElement("input");
+        inp.type = "file"; inp.accept = ".png,.jpg,.jpeg,.gif,.webp";
+        inp.onchange = function () {
+          var f = inp.files[0]; if (!f) return;
+          var fd = new FormData(); fd.append("file", f);
+          api("/api/avatar", { method: "POST", body: fd }).then(function () {
+            refreshMe(); openProfile(uid);
+          })["catch"](function (e) { showErr(e.message); });
+        };
+        inp.click();
+      }, "#prof-edit-avatar");
+      bindClick(overlay, "#prof-del-avatar", function () {
+        api("/api/avatar", { method: "DELETE" }).then(function () {
+          refreshMe(); openProfile(uid);
+        })["catch"](function (e) { showErr(e.message); });
+      }, "#prof-del-avatar");
+      bindClick(overlay, "#prof-save-bio", function () {
+        var v = document.getElementById("prof-bio").value;
+        api("/api/bio", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ bio: v }) }).then(function () {
+          refreshMe(); openProfile(uid);
+        })["catch"](function (e) { showErr(e.message); });
+      }, "#prof-save-bio");
+    } else {
+      bindClick(overlay, "#prof-write", function () {
+        overlay.classList.add("hidden");
+        openChat({ type: "dm", id: p.id, name: p.display_name });
+      }, "#prof-write");
+      bindClick(overlay, "#prof-add-contact", function () {
+        api("/api/contacts", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ contact_id: p.id }) }).then(function () {
+          toast("Контакт добавлен"); refreshContacts(); refreshDialogs();
+        })["catch"](function (e) { showErr(e.message); });
+      }, "#prof-add-contact");
+    }
+  })["catch"](function (e) { showErr(e.message); });
+}
+
+function refreshMe() {
+  return api("/api/me").then(function (me) {
+    state.me = me;
+    var el = $("#me-name"); if (el) el.textContent = me.display_name || me.username;
+    paintMeAvatar();
+  })["catch"](function () {});
+}
+
+function paintMeAvatar() {
+  var box = $("#me-avatar");
+  if (!box || !state.me) return;
+  var url = avatarUrl(state.me.avatar);
+  if (url) {
+    box.classList.add("has-img");
+    box.style.backgroundImage = "url('" + url + "')";
+    box.textContent = "";
+  } else {
+    box.classList.remove("has-img");
+    box.style.backgroundImage = "";
+    box.textContent = (state.me.display_name || state.me.username || "?").charAt(0).toUpperCase();
+  }
+}
+
+// ---------- реакции ----------
+function toggleMsgPicker(mid) {
+  var old = document.querySelector(".react-picker");
+  if (old) {
+    var wasFor = old.getAttribute("data-mid");
+    old.parentNode.removeChild(old);
+    if (wasFor === String(mid)) return;
+  }
+  var bubble = document.querySelector('.msg[data-mid="' + mid + '"]');
+  if (!bubble) return;
+  var picker = document.createElement("div");
+  picker.className = "react-picker";
+  picker.setAttribute("data-mid", mid);
+  var html = "";
+  for (var i = 0; i < REACT_EMOJIS.length; i++)
+    html += '<button class="react-opt" data-emoji="' + REACT_EMOJIS[i] + '">' + REACT_EMOJIS[i] + "</button>";
+  picker.innerHTML = html;
+  bubble.appendChild(picker);
+  var opts = picker.querySelectorAll(".react-opt");
+  for (var j = 0; j < opts.length; j++) opts[j].onclick = function (ev) {
+    ev.stopPropagation();
+    var emoji = this.getAttribute("data-emoji");
+    api("/api/messages/" + mid + "/react", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ emoji: emoji }) })
+      .then(function (res) { applyReactions(mid, res.reactions); })
+      ["catch"](function (e) { showErr(e.message); });
+    if (picker.parentNode) picker.parentNode.removeChild(picker);
+  };
+  setTimeout(function () {
+    document.addEventListener("click", function hide(ev) {
+      if (!picker.contains(ev.target) && picker.parentNode) picker.parentNode.removeChild(picker);
+      document.removeEventListener("click", hide);
+    });
+  }, 0);
+}
+
+function applyReactions(mid, list) {
+  var chipBox = document.querySelector('.msg[data-mid="' + mid + '"] .msg-reactions');
+  if (!chipBox) {
+    var bubble = document.querySelector('.msg[data-mid="' + mid + '"]');
+    if (!bubble) return;
+    chipBox = document.createElement("div");
+    chipBox.className = "msg-reactions";
+    bubble.insertBefore(chipBox, bubble.querySelector(".msg-react-btn") || null);
+  }
+  var html = "";
+  for (var i = 0; i < (list || []).length; i++) {
+    var r = list[i];
+    html += '<span class="react-chip' + (r.mine ? " mine" : "") + '">' + r.emoji + " " + r.count + "</span>";
+  }
+  chipBox.innerHTML = html;
+  for (var k = 0; k < state.messages.length; k++)
+    if (state.messages[k].id === mid) state.messages[k].reactions = list || [];
+}
+
+function reactionsHtml(m) {
+  var html = '<div class="msg-reactions">';
+  var list = m.reactions || [];
+  for (var i = 0; i < list.length; i++)
+    html += '<span class="react-chip' + (list[i].mine ? " mine" : "") + '">' +
+      list[i].emoji + " " + list[i].count + "</span>";
+  html += '</div><button class="msg-react-btn" data-mid="' + m.id + '" title="Реакция">😊</button>';
+  return html;
+}
+
 function connectSocket() {
   if (typeof io === "undefined") return;
   try {
