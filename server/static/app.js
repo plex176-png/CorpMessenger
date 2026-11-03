@@ -688,6 +688,10 @@ function renderMessages() {
   // ситуацию «всё в одном блоке» (незакрытый/лишний тег когда-либо склеивал
   // сообщения в один div и они начинали налагаться друг на друга).
   box.textContent = "";
+  // одна колонка .msgs-col (max-width ~700px) по центру окна — как в Telegram
+  var col = document.createElement("div");
+  col.className = "msgs-col";
+  box.appendChild(col);
   for (var i = 0; i < state.messages.length; i++) {
     var m = state.messages[i];
     var mine = m.sender_id === state.me.id;
@@ -787,7 +791,7 @@ function renderMessages() {
       openProfile(parseInt(this.getAttribute("data-uid"), 10));
     };
 
-    box.appendChild(row);
+    col.appendChild(row);
   }
   box.scrollTop = box.scrollHeight;
 }

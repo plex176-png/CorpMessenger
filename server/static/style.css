@@ -147,19 +147,19 @@ input:focus, select:focus { outline: none; border-bottom-color: #3390ec; }
                     radial-gradient(circle at 80% 70%, rgba(255,255,255,.4) 0, rgba(255,255,255,0) 45%),
                     radial-gradient(circle at 60% 20%, rgba(160,190,220,.35) 0, rgba(160,190,220,0) 40%);
 }
+/* ===== список сообщений: колонка ~700px по центру (как в Telegram) =====
+   .msgs-box — скроллящийся контейнер; внутри него одна колонка .msgs-col
+   шириной до 700px, выровненная по центру окна. Сообщения идут строго друг
+   под другом (flex column), свои прижаты вправо (margin-left:auto). */
+.msgs-box { display: flex; flex-direction: column; align-items: center; }
+.msgs-col { width: 100%; max-width: 700px; display: flex; flex-direction: column; }
+/* строка сообщения: прозрачная обёртка (аватар + тело/пузырь) */
 .msg {
-  max-width: 68%; background: #fff; border-radius: 14px; padding: 7px 12px 6px;
-  margin-bottom: 8px; position: relative; box-shadow: 0 1px 1px rgba(16,34,64,.13);
-  margin-left: 0; clear: both;
+  display: block; width: auto; max-width: 100%; background: transparent;
+  border-radius: 0; padding: 0; margin: 0 0 8px 0; position: relative;
+  box-shadow: none; clear: both;
 }
-/* Список сообщений — вертикальный flex-поток: элементы ВСЕГДА идут строго друг
-   под другом (порядок = порядок массива state.messages, т.е. по id/времени).
-   Это исключает наложение сообщений при плавающих элементах/автоскролле. */
-.msgs-box { display: flex; flex-direction: column; }
-.msg.mine {
-  margin-left: auto;
-  background: #effdde; /* telegram outgoing green */
-}
+.msg.mine { margin-left: auto; }
 .msg-author { font-size: 12.5px; font-weight: 700; color: #e67c73; margin-bottom: 2px; }
 .msg.mine .msg-author { display: none; }
 .msg-text { word-wrap: break-word; white-space: pre-wrap; line-height: 1.4; font-size: 15px; }
@@ -356,19 +356,21 @@ body[data-theme="dark"] .member-row { border-bottom-color: #242f3d; }
 .js-avatar, .msg-avatar { cursor: pointer; }
 .js-avatar:hover, .msg-avatar:hover { filter: brightness(1.08); }
 
-/* ===== сообщения: аватар слева + пузырь (flex-поток в .msgs-box) ===== */
-.msgs-box { display: flex; flex-direction: column; }
-.msg { display: flex; align-items: flex-end; gap: 8px; max-width: 78%; background: transparent; box-shadow: none; padding: 0; margin-bottom: 8px; position: relative; flex-shrink: 0; }
+/* ===== сообщения: аватар слева + пузырь (flex-поток внутри .msgs-col) ===== */
+.msg { display: flex; align-items: flex-end; gap: 8px; max-width: 100%; background: transparent; box-shadow: none; padding: 0; margin-bottom: 8px; position: relative; flex-shrink: 0; }
 .msg.mine { margin-left: auto; }
 .msg .msg-avatar { margin-bottom: 2px; }
-.msg-body { min-width: 0; }
-.msg-bubble {
-  background: #fff; border-radius: 14px; padding: 7px 12px 6px; position: relative;
-  box-shadow: 0 1px 1px rgba(16,34,64,.13); max-width: 100%; word-wrap: break-word;
+/* тело сообщения = пузырь (bubble): в светлой теме белый, прижимается к нужному краю */
+.msg-body {
+  min-width: 0; max-width: 78%; background: #fff; border-radius: 14px;
+  padding: 7px 12px 6px; position: relative; word-wrap: break-word;
+  box-shadow: 0 1px 1px rgba(16,34,64,.13);
 }
-.msg.mine .msg-bubble { background: #effdde; }
-[data-theme="dark"] .msg-bubble, body[data-theme="dark"] .msg-bubble { background: #17212b; color: #f5f5f5; box-shadow: 0 1px 1px rgba(0,0,0,.3); }
-[data-theme="dark"] .msg.mine .msg-bubble, body[data-theme="dark"] .msg.mine .msg-bubble { background: #2b5278; color: #fff; }
+.msg.mine .msg-body { background: #effdde; } /* telegram outgoing green */
+/* совместимость со старой разметкой (если есть отдельный .msg-bubble) */
+.msg-bubble { background: transparent; border-radius: 0; padding: 0; box-shadow: none; max-width: 100%; word-wrap: break-word; }
+[data-theme="dark"] .msg-body, body[data-theme="dark"] .msg-body { background: #17212b; color: #f5f5f5; box-shadow: 0 1px 1px rgba(0,0,0,.3); }
+[data-theme="dark"] .msg.mine .msg-body, body[data-theme="dark"] .msg.mine .msg-body { background: #2b5278; color: #fff; }
 
 /* ===== реакции ===== */
 .msg-reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
