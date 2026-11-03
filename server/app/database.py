@@ -180,6 +180,14 @@ def profile_public(user_id):
 
 EMOJI_ALLOWED = {"👍", "❤️", "😂", "😮", "😢", "🔥", "👎", "✅"}
 
+def reaction_exists(msg_id, user_id):
+    """Есть ли у пользователя любая реакция на это сообщение."""
+    c = _connect()
+    row = c.execute("SELECT 1 FROM reactions WHERE message_id=? AND user_id=? LIMIT 1",
+                    (msg_id, user_id)).fetchone()
+    c.close()
+    return bool(row)
+
 def toggle_reaction(msg_id, user_id, emoji):
     """Добавляет/снимает реакцию. Возвращает актуальный список реакций по сообщению."""
     if emoji not in EMOJI_ALLOWED: raise ValueError("Недопустимая реакция")
@@ -187,6 +195,7 @@ def toggle_reaction(msg_id, user_id, emoji):
         exists = c.execute("SELECT 1 FROM reactions WHERE message_id=? AND user_id=? AND emoji=?",
                            (msg_id, user_id, emoji)).fetchone()
         if exists:
+            # повторное нажатие на ту же реакцию — удаляет её
             c.execute("DELETE FROM reactions WHERE message_id=? AND user_id=? AND emoji=?",
                       (msg_id, user_id, emoji))
         else:

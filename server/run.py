@@ -349,6 +349,10 @@ def react_msg(u, mid):
         recips = _dm_recipients(row["sender_id"], row["group_id"])
     d = request.get_json(force=True, silent=True) or {}
     emoji = (d.get("emoji") or "").strip()
+    # Реакции на собственные сообщения запрещены (как в Telegram). Снятие уже
+    # поставленной реакции — тоже запрещено автору: проверка идёт ДО записи в БД.
+    if int(row["sender_id"]) == int(u["id"]):
+        return jsonify({"error": "Нельзя поставить реакцию на своё сообщение"}), 403
     try:
         reactions = db.toggle_reaction(mid, u["id"], emoji)
     except ValueError as e:

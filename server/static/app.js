@@ -738,13 +738,16 @@ function renderMessages() {
     var reactBtn = document.createElement("button");
     reactBtn.className = "msg-react-btn";
     reactBtn.setAttribute("data-mid", m.id);
-    reactBtn.setAttribute("title", "Реакция");
-    reactBtn.textContent = "😊";
-    reactBtn.onclick = function (ev) {
-      ev.stopPropagation();
-      toggleMsgPicker(parseInt(this.getAttribute("data-mid"), 10));
-    };
-    bubble.appendChild(reactBtn);
+    // Реакции на свои сообщения недоступны (как в Telegram): кнопку не показываем.
+    if (!mine) {
+      reactBtn.setAttribute("title", "Реакция");
+      reactBtn.textContent = "\u{1F60A}";
+      reactBtn.onclick = function (ev) {
+        ev.stopPropagation();
+        toggleMsgPicker(parseInt(this.getAttribute("data-mid"), 10));
+      };
+      bubble.appendChild(reactBtn);
+    }
 
     if (canDel) {
       var delBtn = document.createElement("button");
@@ -1212,17 +1215,6 @@ function showReactors(mid, emoji, anchorEl) {
 function closeReactorsPop() {
   var old = document.querySelector(".reactors-pop");
   if (old && old.parentNode) old.parentNode.removeChild(old);
-}
-
-function reactionsHtml(m) {
-  var html = '<div class="msg-reactions">';
-  var list = m.reactions || [];
-  for (var i = 0; i < list.length; i++)
-    html += '<span class="react-chip' + (list[i].mine ? " mine" : "") +
-      '" data-emoji="' + esc(list[i].emoji) + '" title="Кто поставил реакцию">' +
-      list[i].emoji + " " + list[i].count + "</span>";
-  html += '</div><button class="msg-react-btn" data-mid="' + m.id + '" title="Реакция">😊</button>';
-  return html;
 }
 
 function connectSocket() {
