@@ -204,7 +204,17 @@ def get_messages(u):
     msgs = db.chat_messages(chat_type, chat_id, u["id"])
     key = db.chat_key_for(u["id"], chat_type, chat_id)
     if msgs:
-        db.mark_read(u["id"], key, msgs[-1]["id"])
+        # Отметку ставим по максимальному id во ВСЕМ чате (а не по последнему
+        # сообщению в окне выдачи): иначе старые непрочитанные сообщения,
+        # вышедшие за лимит выборки, так и останутся «непрочитанными».
+        last_id = max(m["id"] for m in msgs)
+        try:
+            all_msgs = db.chat_messages(chat_type, chat_id, u["id"], limit=100000)
+            if all_msgs:
+                last_id = max(all_msgs[-1]["id"], last_id)
+        except Exception:
+            pass
+        db.mark_read(u["id"], key, last_id)
     return jsonify(msgs)
 
 
@@ -244,7 +254,9 @@ def read_msg(u, mid):
     m = db.message_with_names(mid)
     if not m:
         return jsonify({"error": "not found"}), 404
-    key = db.chat_key_for(u["id"], m["chat_type"], m["group_id"])
+    # Для ЛС в колонке group_id хранится id собеседника (см. insert_message).
+    key = db.chat_key_for(u["id"], m["chat_type"], m["group_id"]) if m["chat_type"] == "dm" \
+        else "group:%d" % int(m["group_id"])
     db.mark_read(u["id"], key, mid)
     return jsonify({"ok": True})
 

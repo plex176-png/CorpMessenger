@@ -242,7 +242,11 @@ def list_contacts(user_id):
     return out
 
 def chat_key_for(user_id, chat_type, chat_id):
-    """Единый нормализованный ключ чата для reads/unread (для ЛС — симметричный)."""
+    """Единый нормализованный ключ чата для reads/unread (для ЛС — симметричный).
+
+    Для личных сообщений в качестве chat_id передаётся id СОБЕСЕДНИКА:
+    ключ строится как 'dm:<min>:<max>', поэтому у обеих сторон диалога он одинаков.
+    """
     if chat_type == "dm":
         a, b = sorted((int(chat_id), int(user_id)))
         return "dm:%d:%d" % (a, b)
@@ -251,8 +255,11 @@ def chat_key_for(user_id, chat_type, chat_id):
 def insert_message(chat_type, sender_id, text="", group_id=None, file_id=None, peer_id=None):
     with tx() as c:
         if chat_type == "dm":
+            # Для ЛС в колонке group_id хранится id СОБЕСЕДНИКА (не отправителя),
+            # иначе диалог не найдётся у получателя.
+            other = peer_id if peer_id is not None else sender_id
             cur = c.execute("INSERT INTO messages(chat_type, group_id, sender_id, text, file_id, created_at)"
-                            " VALUES('dm', ?,?,?,?,?)", (peer_id, sender_id, text, file_id, int(time.time())))
+                            " VALUES('dm', ?,?,?,?,?)", (other, sender_id, text, file_id, int(time.time())))
         else:
             cur = c.execute("INSERT INTO messages(chat_type, group_id, sender_id, text, file_id, created_at)"
                             " VALUES('group', ?,?,?,?,?)", (group_id, sender_id, text, file_id, int(time.time())))
@@ -297,17 +304,25 @@ def mark_read(user_id, chat_key, msg_id):
 
 def unread_count(user_id, chat_key):
     """Количество непрочитанных сообщений в чате.
-    Ключ чата нормализуется: 'dm:<id>' хранится как 'dm:<min>:<max>',
-    поэтому чтение и подсчёт для одного диалога всегда используют один ключ."""
+
+    Ключ 'dm:<id>'/'dm:<a>:<b>' трактуется ОДНОЗНАЧНО: <id>/<a>,<b> — это
+    собеседник (или пара id), а не «второй участник относительно user_id».
+    Поэтому счётчик у обеих сторон диалога симметричен и не зависит от того,
+    кто именно вызвал mark_read."""
     c = _connect()
     try:
         kind, arg = chat_key.split(":", 1)
         if kind == "dm":
-            a, b = sorted((int(arg), int(user_id)))
-            key = "dm:%d:%d" % (a, b)
+            parts = [int(x) for x in arg.split(":") if x != ""]
+            if len(parts) == 2:
+                a, b = sorted(parts)
+                peer = b if a == int(user_id) else a
+            else:
+                peer = int(arg)
+            key = "dm:%d:%d" % tuple(sorted((peer, int(user_id))))
             sql = ("SELECT count(*) n FROM messages WHERE deleted=0 AND chat_type='dm'"
                    " AND ((sender_id=? AND group_id=?) OR (sender_id=? AND group_id=?)) AND id>?")
-            args = (user_id, b, b, user_id)
+            args = (user_id, peer, peer, user_id)
         else:
             key = "group:%d" % int(arg)
             sql = ("SELECT count(*) n FROM messages WHERE deleted=0 AND chat_type='group'"
