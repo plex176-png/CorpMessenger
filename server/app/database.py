@@ -231,10 +231,13 @@ def list_contacts(user_id):
     rows = c.execute("SELECT u.id, u.username, u.display_name, u.status, u.last_seen,"
                      " (SELECT m.text FROM messages m WHERE m.chat_type='dm' AND m.deleted=0"
                      "   AND ((m.sender_id=? AND m.group_id=u.id) OR (m.sender_id=u.id AND m.group_id=?))"
-                     "   ORDER BY m.id DESC LIMIT 1) AS last_text"
+                     "   ORDER BY m.id DESC LIMIT 1) AS last_text,"
+                     " (SELECT m.created_at FROM messages m WHERE m.chat_type='dm' AND m.deleted=0"
+                     "   AND ((m.sender_id=? AND m.group_id=u.id) OR (m.sender_id=u.id AND m.group_id=?))"
+                     "   ORDER BY m.id DESC LIMIT 1) AS last_time"
                      " FROM contacts ct JOIN users u ON u.id=ct.contact_id"
                      " WHERE ct.user_id=? AND u.is_active=1 ORDER BY u.display_name",
-                     (user_id, user_id, user_id)).fetchall()
+                     (user_id, user_id, user_id, user_id, user_id)).fetchall()
     c.close()
     out = []
     for r in rows:
@@ -403,7 +406,9 @@ def my_groups(user_id):
     rows = c.execute("SELECT g.id, g.name, g.owner_id, gm.role,"
                      " (SELECT count(*) FROM group_members x WHERE x.group_id=g.id) AS members,"
                      " (SELECT m.text FROM messages m WHERE m.group_id=g.id AND m.deleted=0"
-                     "  ORDER BY m.id DESC LIMIT 1) AS last_text"
+                     "  ORDER BY m.id DESC LIMIT 1) AS last_text,"
+                     " (SELECT m2.created_at FROM messages m2 WHERE m2.group_id=g.id AND m2.deleted=0"
+                     "  ORDER BY m2.id DESC LIMIT 1) AS last_time"
                      " FROM groups g JOIN group_members gm ON gm.group_id=g.id AND gm.user_id=?"
                      " ORDER BY g.name", (user_id,)).fetchall()
     c.close()
@@ -473,7 +478,8 @@ def dialogs(user_id):
     for g in my_groups(user_id):
         seen["group:%d" % g["id"]] = True
         items.append({"type": "group", "id": g["id"], "name": g["name"],
-                      "unread": g["unread"], "members": g["members"], "last_text": g.get("last_text")})
+                      "unread": g["unread"], "members": g["members"], "last_text": g.get("last_text"),
+                      "last_time": g.get("last_time")})
     peers = {}
     c = _connect()
     rows = c.execute("SELECT sender_id AS s, group_id AS p FROM messages"
@@ -490,27 +496,28 @@ def dialogs(user_id):
         peers[ct["id"]] = True
         items.append({"type": "dm", "id": ct["id"], "name": ct["display_name"],
                       "unread": unread_count(user_id, key), "status": ct["status"],
-                      "last_text": ct.get("last_text"), "contact": True})
+                      "last_text": ct.get("last_text"), "last_time": ct.get("last_time"), "contact": True})
     for pid in peers:
         key = "dm:%d" % pid
         if key in seen: continue
         u = get_user(pid)
         if not u or not u["is_active"]: continue
         seen[key] = True
+        _t, _ts = last_dm_text(user_id, pid)
         items.append({"type": "dm", "id": pid, "name": u["display_name"],
                       "unread": unread_count(user_id, key), "status": u["status"],
-                      "last_text": last_dm_text(user_id, pid)})
+                      "last_text": _t, "last_time": _ts})
     return items
 
 
 def last_dm_text(user_id, peer_id):
     c = _connect()
-    r = c.execute("SELECT text FROM messages WHERE chat_type='dm' AND deleted=0 AND ("
+    r = c.execute("SELECT text, created_at FROM messages WHERE chat_type='dm' AND deleted=0 AND ("
                   "(sender_id=? AND group_id=?) OR (sender_id=? AND group_id=?))"
                   " ORDER BY id DESC LIMIT 1",
                   (user_id, peer_id, peer_id, user_id)).fetchone()
     c.close()
-    return r["text"] if r else None
+    return (r["text"], r["created_at"]) if r else (None, None)
 
 def stats():
     c = _connect()

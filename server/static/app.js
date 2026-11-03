@@ -158,8 +158,13 @@ function startApp() {
   connectSocket();
   bindTabs();
   refreshAll();
+  // Фолбэк-опрос только если WebSocket не подключился (иначе дубли и лишние запросы).
   if (!state.pollTimer) {
-    state.pollTimer = setInterval(function () { refreshDialogs(); if (state.chat) loadMessages(true); }, 4000);
+    state.pollTimer = setInterval(function () {
+      if (state.sock && state.sock.connected) return;
+      refreshDialogs();
+      if (state.chat && state.tab !== "admin") loadMessages(true);
+    }, 5000);
   }
 }
 
@@ -178,6 +183,7 @@ function bindTabs() {
 // а не в отдельном окне/модалке.
 function switchTab(t) {
   state.tab = t;
+  if (t !== "admin") state.adminGuard = false;
   var all = document.querySelectorAll(".tab");
   for (var k = 0; k < all.length; k++) all[k].classList.remove("active");
   var bt = document.querySelector('.tab[data-tab="' + t + '"]');
@@ -210,6 +216,10 @@ function renderAdminMain() {
   box.innerHTML = '<div id="admin-main" class="pad"><p class="muted">Загрузка админпанели…</p></div>';
   // отключаем композер, чтобы не отправлять сообщения «в админку»
   setComposerEnabled(false);
+  // закрываем модалку, если она осталась открытой (модалка перекрывает админку)
+  hideModal();
+  // блокируем фолбэк-опрос, который мог вернуть экран чата поверх админки
+  state.adminGuard = true;
   Promise.all([
     api("/api/admin/stats"), api("/api/admin/users"), api("/api/admin/groups"), api("/api/admin/files")
   ]).then(function (res) {
@@ -413,11 +423,14 @@ function chatRow(d) {
   var unreadHtml = d.unread > 0
     ? '<span class="badge unread-anim">' + (d.unread > 99 ? "99+" : d.unread) + '</span>' : "";
   var dot = d.type === "dm" ? statusDot(d.status || "offline") : "";
-  var sub = d.last_text ? esc(String(d.last_text)).slice(0, 60) : (d.type === "group" ? "Группа" : "Нет сообщений");
+  var sub = d.last_text
+    ? '<span class="ci-time">' + fmtTime(d.last_time || 0) + "</span>" + esc(String(d.last_text)).slice(0, 48)
+    : (d.type === "group" ? "Группа" : "Нет сообщений");
   // В названии чата показываем количество непрочитанных; участников в название не выводим.
   var title = esc(d.name) + (d.unread > 0 ? ' <span class="title-count">(' + (d.unread > 99 ? "99+" : d.unread) + ')</span>' : "");
-  return '<div class="chat-item' + (d.unread > 0 ? " has-unread" : "") + '" data-type="' + d.type + '" data-id="' + d.id + '">' +
-    '<div class="avatar sm">' + esc((d.name || "?").charAt(0).toUpperCase()) + "</div>" +
+  var active = state.chat && state.chat.type === d.type && state.chat.id === d.id ? " active-telegram" : "";
+  return '<div class="chat-item' + (d.unread > 0 ? " has-unread" : "") + active + '" data-type="' + d.type + '" data-id="' + d.id + '">' +
+    '<div class="avatar sm' + (d.type === "group" ? " grp" : "") + '">' + esc((d.name || "?").charAt(0).toUpperCase()) + "</div>" +
     '<div class="ci-main"><div class="ci-title">' + dot + title + "</div>" +
     '<div class="ci-sub">' + sub + "</div></div>" + unreadHtml + "</div>";
 }
@@ -542,21 +555,37 @@ function openCreateGroupModal() {
 function openChat(chat) {
   state.chat = chat;
   state.tab = "chats"; // возврат из админки в режим чата
+  var all = document.querySelectorAll(".tab");
+  for (var k = 0; k < all.length; k++) all[k].classList.remove("active");
+  var bt = document.querySelector('.tab[data-tab="chats"]');
+  if (bt) bt.classList.add("active");
+  renderSide();
   $("#chat-empty").classList.add("hidden");
   $("#chat-view").classList.remove("hidden");
   setComposerEnabled(true);
   var extra = "";
   if (chat.type === "group") extra = ' <button class="ghost sm" id="grp-manage">Управление группой</button>';
   $("#chat-title").innerHTML = esc(chat.name) + extra;
+  var subEl = document.getElementById("chat-sub");
+  if (subEl) {
+    if (chat.type === "dm") {
+      var st = "не в сети";
+      for (var di = 0; di < state.dialogs.length; di++)
+        if (state.dialogs[di].type === "dm" && state.dialogs[di].id === chat.id) st = state.dialogs[di].status || "offline";
+      subEl.textContent = st === "online" ? "в сети" : st === "away" ? "отошёл" : "был(а) недавно";
+      subEl.className = "chat-sub" + (st === "online" ? " online" : "");
+    } else { subEl.textContent = "группа"; subEl.className = "chat-sub"; }
+  }
   var gm = document.getElementById("grp-manage");
   if (gm) gm.onclick = function () { openGroupManageModal(chat.id); };
   loadMessages();
 }
 
 function loadMessages(quiet) {
-  if (!state.chat) return;
+  if (!state.chat || state.tab === "admin") return;
   var c = state.chat;
   api("/api/messages?type=" + c.type + "&id=" + c.id).then(function (msgs) {
+    if (state.tab === "admin") return; // пока шёл запрос, пользователь открыл админку — не лезем в её контейнер
     // Дедупликация: помечаем все полученные сообщения как «виденные», но НЕ
     // уведомляем отсюда (уведомление — только из WebSocket new_message).
     for (var i = 0; i < msgs.length; i++) noteMessage(msgs[i], true);
@@ -576,6 +605,7 @@ function fileLink(m) {
 }
 
 function renderMessages() {
+  if (state.tab === "admin") return; // #msgs-box сейчас занят админкой
   var box = $("#msgs-box");
   if (!box) return;
   var html = "";
@@ -584,9 +614,8 @@ function renderMessages() {
     var mine = m.sender_id === state.me.id;
     var canDel = mine || state.me.role === "admin";
     html += '<div class="msg' + (mine ? " mine" : "") + '">' +
-      '<div class="msg-author">' + (mine ? "" : esc(m.sender_name)) +
-      ' <span class="muted small">' + fmtTime(m.created_at) + "</span></div>" +
-      '<div class="msg-text"></div>' +
+      '<div class="msg-author">' + (mine ? "" : esc(m.sender_name)) + "</div>" +
+      '<div class="msg-text"></div><span class="msg-time">' + fmtTime(m.created_at) + "</span>"+
       (m.file_id ? fileLink(m) : "") +
       (canDel ? '<button class="msg-del" data-mid="' + m.id + '" title="Удалить">🗑</button>' : "") +
       "</div>";
@@ -734,6 +763,7 @@ function connectSocket() {
       if (!m || m.sender_id === state.me.id) { refreshDialogs(); return; }
       // Уведомление — только если это ДЕЙСТВИТЕЛЬНО новое сообщение (дедуп по id).
       var fresh = noteMessage(m, false);
+      if (state.tab === "admin") { refreshDialogs(); return; } // в админке не трогаем контейнер чата
       if (!state.chat) { refreshDialogs(); return; }
       var related = (m.chat_type === "dm" && (m.sender_id === state.chat.id || m.group_id === state.chat.id)) ||
                     (m.chat_type === "group" && m.group_id === state.chat.id);
@@ -757,6 +787,13 @@ function connectSocket() {
           state.dialogs[i].status = p.status;
       for (var j = 0; j < state.contacts.length; j++)
         if (state.contacts[j].id === p.user_id) state.contacts[j].status = p.status;
+      if (state.chat && state.chat.type === "dm" && state.chat.id === p.user_id) {
+        var subEl = document.getElementById("chat-sub");
+        if (subEl) {
+          subEl.textContent = p.status === "online" ? "в сети" : p.status === "away" ? "отошёл" : "был(а) недавно";
+          subEl.className = "chat-sub" + (p.status === "online" ? " online" : "");
+        }
+      }
       renderSide();
     });
   } catch (e) { /* фолбэк — опрос раз в 4 сек уже идёт */ }
