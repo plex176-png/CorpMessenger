@@ -1218,7 +1218,8 @@ function reactionsHtml(m) {
   var html = '<div class="msg-reactions">';
   var list = m.reactions || [];
   for (var i = 0; i < list.length; i++)
-    html += '<span class="react-chip' + (list[i].mine ? " mine" : "") + '">' +
+    html += '<span class="react-chip' + (list[i].mine ? " mine" : "") +
+      '" data-emoji="' + esc(list[i].emoji) + '" title="Кто поставил реакцию">' +
       list[i].emoji + " " + list[i].count + "</span>";
   html += '</div><button class="msg-react-btn" data-mid="' + m.id + '" title="Реакция">😊</button>';
   return html;

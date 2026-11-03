@@ -378,10 +378,10 @@ body[data-theme="dark"] .member-row { border-bottom-color: #242f3d; }
 }
 .react-chip.mine { background: rgba(51,144,236,.3); border-color: #3390ec; }
 .msg-react-btn {
-  position: absolute; top: 4px; right: 30px; opacity: 0; border: none; background: rgba(255,255,255,.85);
-  font-size: 13px; padding: 1px 6px; border-radius: 10px; transition: opacity .15s; cursor: pointer;
+  position: absolute; top: 4px; right: 34px; opacity: 0; border: none; background: rgba(255,255,255,.85);
+  font-size: 13px; padding: 1px 6px; border-radius: 10px; transition: opacity .15s; cursor: pointer; z-index: 2;
 }
-.msg.mine .msg-react-btn { right: auto; left: 30px; }
+.msg.mine .msg-react-btn { right: auto; left: 34px; }
 .msg.mine .msg-del { left: 4px; right: auto; }
 .msg:hover .msg-react-btn { opacity: 1; }
 [data-theme="dark"] .msg-react-btn { background: rgba(23,33,43,.85); }
