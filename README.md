@@ -28,7 +28,15 @@ docs/     — API-справка
 3. `server\run_server.bat` — запустит сервер на порту **5000**.
 4. Откройте `http://127.0.0.1:5000` (или адрес сервера в локальной сети) — войдите: **admin / admin123**.
 
-Десктоп: установите Node.js 16.x (последний для Win7), затем `client\run_client.bat`.
+Десктоп: установите Node.js (для Win7 — 14.21.3/16.x, для Win10/11 — LTS), затем двойным щелчком `client\install-win.bat` (поставит зависимости через зеркало и проверит бинарник Electron), запуск — `client\start-win.bat` или `npm start`.
+
+### Если «Electron failed to install correctly» (нет electron.exe)
+Бинарник Electron (~100 МБ) скачивается не через npm, а с github.com — в корпоративных сетях это место обрывается (ECONNRESET). Решения по порядку:
+1. `cd client && node fix-electron.js` — докачает Electron с зеркала npmmirror.com и распакует в `node_modules\electron\dist` автоматически (своим распаковщиком, без PowerShell/tar; работает на Win7/10/11).
+2. Вручную: скачайте `electron-v22.3.27-win32-x64.zip` (для Win7 32-bit — `...-win32-ia32.zip`) из `https://npmmirror.com/mirrors/electron/22.3.27/`, распакуйте всё содержимое в `client\node_modules\electron\dist`, рядом создайте файл `path.txt` со строкой `electron.exe`.
+3. Прокси для npm: `npm config set proxy http://user:pass@host:port` и `npm config set https-proxy ...` (то же значение).
+4. Альтернатива без Electron: веб-версия клиента `http://адрес-сервера:5000` полностью функциональна.
+
 APK для Android: Linux + `pip install -r mobile/requirements.txt`, затем `cd mobile && buildozer android debug`.
 
 ## Безопасность

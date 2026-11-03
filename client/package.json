@@ -6,7 +6,8 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist:win7": "electron-packager . КорпМессенджер --platform=win32 --arch=ia32 --out=../release --overwrite --icon=icon.ico"
+    "dist:win7": "electron-packager . КорпМессенджер --platform=win32 --arch=ia32 --out=../release --overwrite --icon=icon.ico",
+    "fix-electron": "node fix-electron.js"
   },
   "author": "Corp",
   "license": "MIT",
