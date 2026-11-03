@@ -174,6 +174,9 @@ function startApp() {
   }
   connectSocket();
   bindTabs();
+  // Клик по своему аватару в сайдбаре → профиль, где можно загрузить/удалить аватар.
+  var meAv = $("#me-avatar");
+  if (meAv) meAv.onclick = function () { openProfile(state.me.id); };
   refreshAll();
   // Фолбэк-опрос только если WebSocket не подключился (иначе дубли и лишние запросы).
   if (!state.pollTimer) {
