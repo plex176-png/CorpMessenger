@@ -12,13 +12,12 @@
 
   <!-- Экран входа -->
   <div id="login-screen" class="login-wrap hidden">
-    <div class="login-card">
+    <div class="login-card compact">
       <h2>КорпМессенджер</h2>
-      <p class="muted">Корпоративный мессенджер</p>
-      <label>Адрес сервера <input id="srv-host" placeholder="127.0.0.1"></label>
-      <label>Порт <input id="srv-port" type="number" placeholder="5000"></label>
-      <label>Логин <input id="login-user" autocomplete="username"></label>
-      <label>Пароль <input id="login-pass" type="password" autocomplete="current-password"></label>
+      <label><input id="srv-host" placeholder="Сервер: 127.0.0.1"></label>
+      <label><input id="srv-port" type="number" placeholder="Порт: 5000"></label>
+      <label><input id="login-user" placeholder="Логин" autocomplete="username"></label>
+      <label><input id="login-pass" type="password" placeholder="Пароль" autocomplete="current-password"></label>
       <button id="btn-login" class="primary">Войти</button>
       <button id="btn-register" class="ghost">Регистрация</button>
       <div id="login-msg" class="muted small"></div>
@@ -38,6 +37,7 @@
             <option value="offline">⚪ Не в сети</option>
           </select>
         </div>
+        <button id="theme-toggle" title="Переключить тему">🌙</button>
         <button id="logout" title="Выйти">⎋</button>
       </div>
       <nav class="tabs">

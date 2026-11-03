@@ -6,7 +6,7 @@ var state = {
   base: "", token: "", me: null, tab: "chats",
   dialogs: [], contacts: [], directory: [], groups: [], users: [],
   chat: null, messages: [], sock: null, pollTimer: null,
-  lastId: 0, seenIds: {}, notifyOn: true
+  lastId: 0, seenIds: {}, notifyOn: true, theme: "light"
 };
 
 var EMOJI_LIST = ["😀","😁","😂","🤣","😊","🙂","😉","😍","😘","😜",
@@ -98,6 +98,23 @@ function saveServerAddr() {
   var p = $("#srv-port").value.trim() || "5000";
   lsSet("srv_host", h); lsSet("srv_port", p);
   state.base = "http://" + h + ":" + p;
+}
+
+// ---------- темы ----------
+function loadTheme() {
+  var t = lsGet("theme") || "light";
+  applyTheme(t);
+}
+function applyTheme(theme) {
+  state.theme = theme;
+  document.documentElement.setAttribute("data-theme", theme);
+  document.body.setAttribute("data-theme", theme);
+  lsSet("theme", theme);
+  var btn = $("#theme-toggle");
+  if (btn) btn.textContent = theme === "dark" ? "☀" : "🌙";
+}
+function toggleTheme() {
+  applyTheme(state.theme === "dark" ? "light" : "dark");
 }
 
 // ---------- авторизация ----------
@@ -882,11 +899,13 @@ function initStatus() {
 // ---------- старт ----------
 function boot() {
   state.base = detectBase();
+  loadTheme(); // загружаем тему до инициализации UI
   initLogin();
   initEmojiPanel();
   initAttach();
   initStatus();
   bindClick(document, "#logout", function () { doLogout(true); }, "#logout");
+  bindClick(document, "#theme-toggle", toggleTheme, "#theme-toggle");
   bindClick(document, "#send", sendMessage, "#send");
   $("#msg-input").addEventListener("keydown", function (ev) {
     if (ev.key === "Enter") { ev.preventDefault(); sendMessage(); }
