@@ -378,12 +378,26 @@ body[data-theme="dark"] .member-row { border-bottom-color: #242f3d; }
 }
 .react-chip.mine { background: rgba(51,144,236,.3); border-color: #3390ec; }
 .msg-react-btn {
-  position: absolute; top: 4px; right: 4px; opacity: 0; border: none; background: rgba(255,255,255,.85);
+  position: absolute; top: 4px; right: 30px; opacity: 0; border: none; background: rgba(255,255,255,.85);
   font-size: 13px; padding: 1px 6px; border-radius: 10px; transition: opacity .15s; cursor: pointer;
 }
+.msg.mine .msg-react-btn { right: auto; left: 30px; }
 .msg.mine .msg-del { left: 4px; right: auto; }
 .msg:hover .msg-react-btn { opacity: 1; }
 [data-theme="dark"] .msg-react-btn { background: rgba(23,33,43,.85); }
+/* чипы реакций — кликабельны: показывают, кто поставил реакцию */
+.react-chip { cursor: pointer; }
+.react-chip:hover { filter: brightness(.96); }
+.reactors-pop {
+  position: fixed; z-index: 60; background: #fff; border-radius: 12px; padding: 6px 4px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.28); min-width: 150px; max-width: 240px; animation: pop .12s ease-out;
+}
+[data-theme="dark"] .reactors-pop { background: #17212b; color: #f5f5f5; }
+.reactors-pop .rp-title { font-size: 12px; color: #8a97a3; padding: 2px 10px 4px; border-bottom: 1px solid rgba(128,128,128,.18); margin-bottom: 2px; }
+.reactors-pop .rp-item { display: flex; align-items: center; gap: 8px; padding: 4px 10px; font-size: 13.5px; cursor: pointer; border-radius: 8px; }
+.reactors-pop .rp-item:hover { background: rgba(51,144,236,.12); }
+.reactors-pop .rp-ava { width: 24px; height: 24px; border-radius: 50%; flex: 0 0 24px; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-size: 11px; font-weight: 700; overflow: hidden; }
+.reactors-pop .rp-ava img { width: 100%; height: 100%; object-fit: cover; }
 .react-picker {
   position: absolute; top: calc(100% + 6px); left: 0; z-index: 30;
   background: #fff; border-radius: 22px; padding: 4px 8px; display: flex; gap: 2px;

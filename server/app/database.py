@@ -205,11 +205,22 @@ def reactions_for(msg_id, viewer_id=None):
         rows = c.execute("SELECT emoji, COUNT(*) n, MAX(user_id=?) mine FROM reactions"
                          " WHERE message_id=? GROUP BY emoji ORDER BY n DESC",
                          (viewer_id, msg_id)).fetchall()
+    who = c.execute(
+        "SELECT r.emoji, r.user_id, u.username, COALESCE(NULLIF(u.display_name,''),u.username) name"
+        " FROM reactions r JOIN users u ON u.id=r.user_id WHERE r.message_id=?", (msg_id,)).fetchall()
     c.close()
-    return [{"emoji": r["emoji"], "count": r["n"], "mine": bool(r["mine"])} for r in rows]
+    by_emoji = {}
+    for w in who:
+        by_emoji.setdefault(w["emoji"], []).append({"id": w["user_id"], "name": w["name"]})
+    out = []
+    for r in rows:
+        item = {"emoji": r["emoji"], "count": r["n"], "mine": bool(r["mine"])}
+        item["users"] = by_emoji.get(r["emoji"], [])
+        out.append(item)
+    return out
 
-def reactions_map(msg_ids):
-    """{message_id: [ {emoji,count,mine} ]} одним запросом (mine заполняется отдельно)."""
+def reactions_map(msg_ids, viewer_id=None):
+    """{message_id: [ {emoji,count,mine,users:[{id,name}]} ]} одним-двумя запросами."""
     if not msg_ids: return {}
     marks = ",".join("?" * len(msg_ids))
     out = {}
@@ -217,25 +228,30 @@ def reactions_map(msg_ids):
     rows = c.execute(
         "SELECT message_id, emoji, COUNT(*) n FROM reactions WHERE message_id IN (%s)"
         " GROUP BY message_id, emoji ORDER BY n DESC" % marks, tuple(msg_ids)).fetchall()
+    who = c.execute(
+        "SELECT r.message_id, r.emoji, r.user_id, COALESCE(NULLIF(u.display_name,''),u.username) name"
+        " FROM reactions r JOIN users u ON u.id=r.user_id WHERE r.message_id IN (%s)" % marks,
+        tuple(msg_ids)).fetchall()
+    mine_rows = []
+    if viewer_id is not None:
+        mine_rows = c.execute("SELECT message_id, emoji FROM reactions WHERE user_id=? AND message_id IN (%s)"
+                              % marks, tuple([viewer_id] + list(msg_ids))).fetchall()
     c.close()
     for r in rows:
-        out.setdefault(r["message_id"], []).append({"emoji": r["emoji"], "count": r["n"], "mine": False})
+        out.setdefault(r["message_id"], []).append({"emoji": r["emoji"], "count": r["n"],
+                                                    "mine": False, "users": []})
+    idx = {(mid, it["emoji"]): it for mid, lst in out.items() for it in lst}
+    for w in who:
+        it = idx.get((w["message_id"], w["emoji"]))
+        if it: it["users"].append({"id": w["user_id"], "name": w["name"]})
+    for mr in mine_rows:
+        it = idx.get((mr["message_id"], mr["emoji"]))
+        if it: it["mine"] = True
     return out
 
 def attach_mine_reactions(msg_ids, user_id):
-    """Дополнить reactions_map флагом 'mine' для конкретного пользователя."""
-    if not msg_ids: return {}
-    m = reactions_map(msg_ids)
-    marks = ",".join("?" * len(msg_ids))
-    c = _connect()
-    rows = c.execute("SELECT message_id, emoji FROM reactions WHERE user_id=? AND message_id IN (%s)"
-                     % marks, tuple([user_id] + list(msg_ids))).fetchall()
-    c.close()
-    mine = {(r["message_id"], r["emoji"]) for r in rows}
-    for mid, lst in m.items():
-        for item in lst:
-            item["mine"] = (mid, item["emoji"]) in mine
-    return m
+    """reactions_map с флагом 'mine' и списком ставивших пользователей."""
+    return reactions_map(msg_ids, user_id)
 
 def hash_password(password, salt=None):
     if salt is None: salt = secrets.token_hex(16)

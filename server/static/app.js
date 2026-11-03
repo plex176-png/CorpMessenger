@@ -725,7 +725,12 @@ function renderMessages() {
     for (var ri = 0; ri < rlist.length; ri++) {
       var chip = document.createElement("span");
       chip.className = "react-chip" + (rlist[ri].mine ? " mine" : "");
+      chip.setAttribute("data-emoji", rlist[ri].emoji);
+      chip.setAttribute("title", "Кто поставил реакцию");
       chip.textContent = rlist[ri].emoji + " " + rlist[ri].count;
+      chip.onclick = (function (eid, emo) {
+        return function (ev) { ev.stopPropagation(); showReactors(eid, emo, this); };
+      })(m.id, rlist[ri].emoji);
       chipBox.appendChild(chip);
     }
     bubble.appendChild(chipBox);
@@ -1126,14 +1131,87 @@ function applyReactions(mid, list) {
     chipBox.className = "msg-reactions";
     bubble.insertBefore(chipBox, bubble.querySelector(".msg-react-btn") || null);
   }
-  var html = "";
+  chipBox.innerHTML = "";
   for (var i = 0; i < (list || []).length; i++) {
     var r = list[i];
-    html += '<span class="react-chip' + (r.mine ? " mine" : "") + '">' + r.emoji + " " + r.count + "</span>";
+    var chip = document.createElement("span");
+    chip.className = "react-chip" + (r.mine ? " mine" : "");
+    chip.setAttribute("data-emoji", r.emoji);
+    chip.setAttribute("title", "Кто поставил реакцию");
+    chip.textContent = r.emoji + " " + r.count;
+    chip.onclick = (function (eid, emo) {
+      return function (ev) { ev.stopPropagation(); showReactors(eid, emo, this); };
+    })(mid, r.emoji);
+    chipBox.appendChild(chip);
   }
-  chipBox.innerHTML = html;
   for (var k = 0; k < state.messages.length; k++)
     if (state.messages[k].id === mid) state.messages[k].reactions = list || [];
+}
+
+/* Всплывающее окно: кто поставил реакцию (клик по чипу). */
+function showReactors(mid, emoji, anchorEl) {
+  closeReactorsPop();
+  var m = null;
+  for (var i = 0; i < state.messages.length; i++)
+    if (state.messages[i].id === mid) { m = state.messages[i]; break; }
+  var users = [];
+  var lst = (m && m.reactions) || [];
+  for (var j = 0; j < lst.length; j++)
+    if (lst[j].emoji === emoji) { users = lst[j].users || []; break; }
+  // если в кэсе нет списка ставивших — тянем свежие реакции с сервера
+  var needFetch = !(lst.length && lst.some(function (r) { return r.users; }));
+  var fetchP = needFetch
+    ? api("/api/messages?type=" + encodeURIComponent(state.chat.type) +
+          "&id=" + encodeURIComponent(state.chat.id))
+        .catch(function () { return null; })
+    : Promise.resolve(null);
+  fetchP.then(function (msgs) {
+    if (msgs && msgs.length) {
+      for (var q = 0; q < msgs.length; q++)
+        if (msgs[q].id === mid) { m = msgs[q]; state.messages = msgs; break; }
+      if (m && m.reactions) {
+        users = [];
+        lst = m.reactions;
+        for (var w = 0; w < lst.length; w++)
+          if (lst[w].emoji === emoji) { users = lst[w].users || []; break; }
+      }
+    }
+    var pop = document.createElement("div");
+    pop.className = "reactors-pop";
+    var html = '<div class="rp-title">' + emoji + " — " + users.length + "</div>";
+    if (!users.length) html += '<div class="rp-item">Нет данных</div>';
+    for (var u = 0; u < users.length; u++) {
+      html += '<div class="rp-item js-rp-user" data-uid="' + users[u].id + '">' +
+        avatarHtml(users[u].name, users[u].id, "sm") + "<span>" + esc(users[u].name) + "</span></div>";
+    }
+    pop.innerHTML = html;
+    document.body.appendChild(pop);
+    try {
+      var r = anchorEl.getBoundingClientRect();
+      var pr = pop.getBoundingClientRect();
+      var top = r.bottom + 6, left = r.left;
+      if (top + pr.height > window.innerHeight - 8) top = r.top - pr.height - 6;
+      if (left + pr.width > window.innerWidth - 8) left = window.innerWidth - pr.width - 8;
+      if (left < 8) left = 8;
+      pop.style.top = top + "px"; pop.style.left = left + "px";
+    } catch (e) {}
+    var items = pop.querySelectorAll(".js-rp-user");
+    for (var it = 0; it < items.length; it++) items[it].onclick = function () {
+      var uid = parseInt(this.getAttribute("data-uid"), 10);
+      closeReactorsPop();
+      if (uid !== state.me.id) openProfile(uid);
+    };
+    setTimeout(function () {
+      document.addEventListener("click", function hide(ev) {
+        if (pop.parentNode && !pop.contains(ev.target)) closeReactorsPop();
+        document.removeEventListener("click", hide);
+      });
+    }, 0);
+  });
+}
+function closeReactorsPop() {
+  var old = document.querySelector(".reactors-pop");
+  if (old && old.parentNode) old.parentNode.removeChild(old);
 }
 
 function reactionsHtml(m) {
