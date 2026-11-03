@@ -1,0 +1,5 @@
+flask==2.2.5
+flask-socketio==5.3.6
+python-engineio==4.5.1
+python-socketio==5.9.0
+werkzeug==2.2.3
