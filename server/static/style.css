@@ -380,7 +380,7 @@ body[data-theme="dark"] .member-row { border-bottom-color: #242f3d; }
   position: absolute; top: 4px; right: 4px; opacity: 0; border: none; background: rgba(255,255,255,.85);
   font-size: 13px; padding: 1px 6px; border-radius: 10px; transition: opacity .15s; cursor: pointer;
 }
-.msg-del { right: 30px !important; }
+.msg.mine .msg-del { left: 4px; right: auto; }
 .msg:hover .msg-react-btn { opacity: 1; }
 [data-theme="dark"] .msg-react-btn { background: rgba(23,33,43,.85); }
 .react-picker {

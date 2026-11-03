@@ -969,8 +969,9 @@ function toggleMsgPicker(mid) {
     old.parentNode.removeChild(old);
     if (wasFor === String(mid)) return;
   }
-  var bubble = document.querySelector('.msg[data-mid="' + mid + '"]');
-  if (!bubble) return;
+  var msgEl = document.querySelector('.msg[data-mid="' + mid + '"]');
+  if (!msgEl) return;
+  var bubble = msgEl.querySelector(".msg-bubble") || msgEl;
   var picker = document.createElement("div");
   picker.className = "react-picker";
   picker.setAttribute("data-mid", mid);
@@ -978,7 +979,29 @@ function toggleMsgPicker(mid) {
   for (var i = 0; i < REACT_EMOJIS.length; i++)
     html += '<button class="react-opt" data-emoji="' + REACT_EMOJIS[i] + '">' + REACT_EMOJIS[i] + "</button>";
   picker.innerHTML = html;
-  bubble.appendChild(picker);
+  // пикер крепим к строке сообщения (.msg), а не к пузырю: у .msg есть
+  // position:relative, поэтому панель появляется точно рядом с сообщением.
+  msgEl.appendChild(picker);
+  // автопозиционирование: над/под/левее — в зависимости от места в окне
+  try {
+    var r = bubble.getBoundingClientRect();
+    picker.style.visibility = "hidden";
+    picker.style.left = ""; picker.style.right = ""; picker.style.top = ""; picker.style.bottom = "";
+    var pw2 = picker.offsetWidth || 240, ph = picker.offsetHeight || 40;
+    var vh = window.innerHeight || document.documentElement.clientHeight;
+    var vw = window.innerWidth || document.documentElement.clientWidth;
+    // по вертикали: сверху если хватает места, иначе снизу
+    if (r.top - ph - 10 > 0) picker.style.bottom = "calc(100% + 6px)";
+    else picker.style.top = (r.bottom - msgEl.getBoundingClientRect().top + 6) + "px";
+    // по горизонтали: прижимаем к краю пузыря, но не даём вылезти за окно
+    var mine = msgEl.classList.contains("mine");
+    if (mine) picker.style.left = "auto"; else picker.style.right = "auto";
+    if (mine) picker.style.right = "0"; else picker.style.left = "0";
+    var pr = picker.getBoundingClientRect();
+    if (pr.left < 4 && !mine) picker.style.left = (4 - pr.left) + "px";
+    if (pr.right > vw - 4 && mine) picker.style.right = (pr.right - (vw - 4)) + "px";
+    picker.style.visibility = "";
+  } catch (e) {}
   var opts = picker.querySelectorAll(".react-opt");
   for (var j = 0; j < opts.length; j++) opts[j].onclick = function (ev) {
     ev.stopPropagation();
