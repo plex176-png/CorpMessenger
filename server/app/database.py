@@ -368,6 +368,17 @@ def save_file(user_id, orig_name, stored_name, mimetype, size):
                          size, int(time.time())))
         return cur.lastrowid
 
+def delete_file(fid):
+    """Удаляет запись о файле из БД; сообщения ссылающиеся на него остаются (файл помечен отсутствующим)."""
+    with tx() as c:
+        c.execute("DELETE FROM files WHERE id=?", (fid,))
+
+def group_exists(gid):
+    c = _connect()
+    r = c.execute("SELECT 1 FROM groups WHERE id=?", (gid,)).fetchone()
+    c.close()
+    return r is not None
+
 def get_file(fid):
     c = _connect(); r = c.execute("SELECT * FROM files WHERE id=?", (fid,)).fetchone(); c.close()
     return dict(r) if r else None

@@ -5,7 +5,8 @@
 var state = {
   base: "", token: "", me: null, tab: "chats",
   dialogs: [], contacts: [], directory: [], groups: [], users: [],
-  chat: null, messages: [], sock: null, pollTimer: null
+  chat: null, messages: [], sock: null, pollTimer: null,
+  lastId: 0, seenIds: {}, notifyOn: true
 };
 
 var EMOJI_LIST = ["😀","😁","😂","🤣","😊","🙂","😉","😍","😘","😜",
@@ -168,13 +169,187 @@ function bindTabs() {
     tabs[i].onclick = function () {
       var t = this.getAttribute("data-tab");
       if (!t) return;
-      state.tab = t;
-      var all = document.querySelectorAll(".tab");
-      for (var k = 0; k < all.length; k++) all[k].classList.remove("active");
-      this.classList.add("active");
-      renderSide();
+      switchTab(t);
     };
   }
+}
+
+// Переключение вкладки. Админка открывается В ОСНОВНОМ ОКНЕ (правая панель),
+// а не в отдельном окне/модалке.
+function switchTab(t) {
+  state.tab = t;
+  var all = document.querySelectorAll(".tab");
+  for (var k = 0; k < all.length; k++) all[k].classList.remove("active");
+  var bt = document.querySelector('.tab[data-tab="' + t + '"]');
+  if (bt) bt.classList.add("active");
+  renderSide();
+  var empty = $("#chat-empty"), view = $("#chat-view");
+  if (t === "admin") {
+    if (empty) empty.classList.add("hidden");
+    if (view) view.classList.add("hidden");
+    renderAdminMain();
+  } else {
+    if (state.chat) {
+      if (empty) empty.classList.add("hidden");
+      if (view) view.classList.remove("hidden");
+    } else {
+      if (empty) empty.classList.remove("hidden");
+      if (view) view.classList.add("hidden");
+    }
+  }
+}
+
+// ---------- админка в основном окне ----------
+function renderAdminMain() {
+  var view = $("#chat-view"), empty = $("#chat-empty");
+  if (!view || !empty) return;
+  empty.classList.add("hidden");
+  view.classList.remove("hidden");
+  $("#chat-title").textContent = "Администрирование";
+  var box = $("#msgs-box");
+  box.innerHTML = '<div id="admin-main" class="pad"><p class="muted">Загрузка админпанели…</p></div>';
+  // отключаем композер, чтобы не отправлять сообщения «в админку»
+  setComposerEnabled(false);
+  Promise.all([
+    api("/api/admin/stats"), api("/api/admin/users"), api("/api/admin/groups"), api("/api/admin/files")
+  ]).then(function (res) {
+    var el = document.getElementById("admin-main");
+    if (!el) return;
+    el.innerHTML = buildAdminHtml(res[0], res[1], res[2], res[3]);
+    wireAdmin(el);
+  })["catch"](function (e) {
+    var el = document.getElementById("admin-main");
+    if (el) el.innerHTML = '<p class="muted pad">Ошибка загрузки: ' + esc(e.message) + "</p>";
+  });
+}
+
+function setComposerEnabled(on) {
+  var inp = $("#msg-input"), send = $("#send"), att = $("#attach-btn"), em = $("#emoji-btn");
+  if (inp) inp.disabled = !on;
+  if (send) send.disabled = !on;
+  if (att) att.style.visibility = on ? "" : "hidden";
+  if (em) em.style.visibility = on ? "" : "hidden";
+  if (!on && $("#emoji-panel")) $("#emoji-panel").classList.add("hidden");
+}
+
+function buildAdminHtml(st, users, groups, files) {
+  var html = "<h3>Статистика</h3><div class='stats'>" +
+    "Пользователей: <b>" + st.users + "</b> (активных " + st.active_users + ", в сети " + st.online + ")<br>" +
+    "Групп: <b>" + st.groups + "</b> · Сообщений: <b>" + st.messages + "</b><br>" +
+    "Файлов: <b>" + st.files_count + "</b> · Хранилище: <b>" + fmtSize(st.storage_bytes) + "</b></div>";
+
+  html += "<h3>Сотрудники</h3><div class='form-inline'>" +
+    "<input id='nu-name' placeholder='Отображаемое имя'><input id='nu-login' placeholder='Логин'>" +
+    "<input id='nu-pass' placeholder='Пароль' type='password'><button class='primary sm' id='nu-add'>Добавить</button></div>" +
+    "<table class='atable'><tr><th>Имя</th><th>Логин</th><th>Роль</th><th>Статус</th><th></th></tr>";
+  for (var i = 0; i < users.length; i++) {
+    var uu = users[i];
+    var blocked = !uu.is_active;
+    html += "<tr><td>" + esc(uu.display_name || "") + "</td><td>" + esc(uu.username) + "</td>" +
+      "<td>" + (uu.role === "admin" ? "админ" : "сотр.") + "</td>" +
+      "<td>" + (blocked ? "заблокирован" : uu.status === "online" ? "в сети" : uu.status === "away" ? "отошёл" : "не в сети") + "</td>" +
+      "<td class='row-actions'>" +
+      "<button class='ghost sm au-role' data-uid='" + uu.id + "'>" + (uu.role !== "admin" ? "→ админ" : "→ сотр.") + "</button> " +
+      "<button class='ghost sm au-block' data-uid='" + uu.id + "'>" + (blocked ? "Разблок." : "Блок.") + "</button> " +
+      (uu.id !== state.me.id ? "<button class='danger sm au-del' data-uid='" + uu.id + "'>Удалить</button>" : "") +
+      "</td></tr>";
+  }
+  html += "</table>";
+
+  html += "<h3>Группы</h3><table class='atable'><tr><th>Название</th><th>Участников</th><th>Владелец</th><th></th></tr>";
+  for (var g = 0; g < groups.length; g++) {
+    var gg = groups[g];
+    html += "<tr><td>" + esc(gg.name) + "</td><td>" + gg.members + "</td><td>" + esc(gg.owner_name || "") + "</td>" +
+      "<td class='row-actions'><button class='ghost sm ag-manage' data-gid='" + gg.id + "'>Управление</button> " +
+      "<button class='danger sm ag-del' data-gid='" + gg.id + "'>Удалить</button></td></tr>";
+  }
+  html += "</table>";
+
+  html += "<h3>Модерация сообщений</h3><div class='form-inline'><button class='ghost sm' id='load-msgs'>Показать последние 50</button></div><div id='msgs-box-admin'></div>";
+
+  html += "<h3>Файлы</h3><table class='atable'><tr><th>Имя</th><th>Размер</th><th>Автор</th><th></th></tr>";
+  for (var f = 0; f < files.length; f++) {
+    var ff = files[f];
+    html += "<tr><td>" + esc(ff.filename) + "</td><td>" + fmtSize(ff.size) + "</td><td>" + esc(ff.uploader || "") + "</td>" +
+      "<td><button class='danger sm af-del' data-fid='" + ff.id + "'>Удалить</button></td></tr>";
+  }
+  html += "</table>";
+  return html;
+}
+
+function wireAdmin(root) {
+  bindClick(root, "#nu-add", function () {
+    var nm = root.querySelector("#nu-name").value.trim(), lg = root.querySelector("#nu-login").value.trim(), pw = root.querySelector("#nu-pass").value;
+    if (!nm || !lg || !pw) { showErr("Заполните имя, логин и пароль"); return; }
+    api("/api/admin/users", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ display_name: nm, username: lg, password: pw })
+    }).then(function () { renderAdminMain(); })["catch"](function (e) { showErr(e.message); });
+  }, "#nu-add");
+
+  var roleBtns = root.querySelectorAll(".au-role");
+  for (var i = 0; i < roleBtns.length; i++) roleBtns[i].onclick = function () {
+    var uid = parseInt(this.getAttribute("data-uid"), 10);
+    api("/api/admin/users/" + uid, { method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ toggle_role: true })
+    }).then(function () { renderAdminMain(); })["catch"](function (e) { showErr(e.message); });
+  };
+  var blockBtns = root.querySelectorAll(".au-block");
+  for (var j = 0; j < blockBtns.length; j++) blockBtns[j].onclick = function () {
+    var uid = parseInt(this.getAttribute("data-uid"), 10);
+    api("/api/admin/users/" + uid, { method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ toggle_block: true })
+    }).then(function () { renderAdminMain(); })["catch"](function (e) { showErr(e.message); });
+  };
+  var delBtns = root.querySelectorAll(".au-del");
+  for (var d = 0; d < delBtns.length; d++) delBtns[d].onclick = function () {
+    var uid = parseInt(this.getAttribute("data-uid"), 10);
+    if (!confirm("Удалить пользователя и все его сообщения?")) return;
+    api("/api/admin/users/" + uid, { method: "DELETE" }).then(function () { renderAdminMain(); refreshDialogs(); })["catch"](function (e) { showErr(e.message); });
+  };
+
+  var gmBtns = root.querySelectorAll(".ag-manage");
+  for (var m = 0; m < gmBtns.length; m++) gmBtns[m].onclick = function () {
+    openGroupManageModal(parseInt(this.getAttribute("data-gid"), 10));
+  };
+  var gdBtns = root.querySelectorAll(".ag-del");
+  for (var q = 0; q < gdBtns.length; q++) gdBtns[q].onclick = function () {
+    var gid = parseInt(this.getAttribute("data-gid"), 10);
+    if (!confirm("Удалить группу вместе с историей?")) return;
+    api("/api/admin/groups/" + gid, { method: "DELETE" }).then(function () { renderAdminMain(); refreshDialogs(); })["catch"](function (e) { showErr(e.message); });
+  };
+
+  var fmBtns = root.querySelectorAll(".af-del");
+  for (var z = 0; z < fmBtns.length; z++) fmBtns[z].onclick = function () {
+    var fid = parseInt(this.getAttribute("data-fid"), 10);
+    if (!confirm("Удалить файл из хранилища?")) return;
+    api("/api/admin/files/" + fid, { method: "DELETE" }).then(function () { renderAdminMain(); })["catch"](function (e) { showErr(e.message); });
+  };
+
+  bindClick(root, "#load-msgs", function () { loadAdminMessages(root); }, "#load-msgs");
+}
+
+function loadAdminMessages(root) {
+  api("/api/admin/messages?limit=50").then(function (ms) {
+    var box = root.querySelector("#msgs-box-admin");
+    if (!box) return;
+    var html = "<table class='atable'><tr><th>ID</th><th>От</th><th>Куда</th><th>Текст</th><th></th></tr>";
+    for (var i = 0; i < ms.length; i++) {
+      var mm = ms[i];
+      html += "<tr><td>" + mm.id + "</td><td>" + esc(mm.sender_name || "") + "</td>" +
+        "<td>" + (mm.chat_type === "group" ? "гр." + mm.group_id : "ЛС") + "</td>" +
+        "<td>" + esc(String(mm.text || "").slice(0, 80)) + "</td>" +
+        "<td><button class='danger sm am-del' data-mid='" + mm.id + "'>🗑</button></td></tr>";
+    }
+    html += "</table>";
+    box.innerHTML = html;
+    var ds = box.querySelectorAll(".am-del");
+    for (var j = 0; j < ds.length; j++) ds[j].onclick = function () {
+      var mid = parseInt(this.getAttribute("data-mid"), 10);
+      api("/api/messages/" + mid, { method: "DELETE" }).then(function () {
+        loadAdminMessages(root); refreshDialogs();
+      })["catch"](function (e) { showErr(e.message); });
+    };
+  })["catch"](function (e) { showErr(e.message); });
 }
 
 function refreshAll() {
@@ -199,7 +374,29 @@ function updateBadge() {
   var total = 0;
   for (var i = 0; i < state.dialogs.length; i++) total += (state.dialogs[i].unread || 0);
   document.title = (total > 0 ? "(" + total + ") " : "") + "КорпМессенджер";
-  if (window.corpNotify) { try { window.corpNotify(total); } catch (e) {} }
+  // Системное уведомление Electron — ТОЛЬКО о новых входящих сообщениях (см. pingIncoming),
+  // а не о каждом обновлении счётчика (раньше это вызывало «постоянные» уведомления).
+  return total;
+}
+
+// Дедупликация и порождение уведомлений: учитываем только сообщения с id больше
+// последнего виденного и которых ещё не было в seenIds (WS-эхо + опрос могут
+// принести одно и то же сообщение дважды).
+function noteMessage(m, fromPoll) {
+  if (!m || typeof m.id !== "number") return false;
+  var fresh = m.id > state.lastId && !state.seenIds[m.id];
+  if (m.id > state.lastId) state.lastId = m.id;
+  state.seenIds[m.id] = 1;
+  if (fresh && !fromPoll && m.sender_id !== state.me.id) {
+    // новое входящее — уведомляем один раз
+    pingIncoming(m);
+  }
+  return fresh;
+}
+
+function desktopNotify(text) {
+  if (!state.notifyOn) return;
+  if (window.corpNotify) { try { window.corpNotify(text); } catch (e) {} }
 }
 
 // ---------- боковая панель ----------
@@ -344,8 +541,10 @@ function openCreateGroupModal() {
 // ---------- чат ----------
 function openChat(chat) {
   state.chat = chat;
+  state.tab = "chats"; // возврат из админки в режим чата
   $("#chat-empty").classList.add("hidden");
   $("#chat-view").classList.remove("hidden");
+  setComposerEnabled(true);
   var extra = "";
   if (chat.type === "group") extra = ' <button class="ghost sm" id="grp-manage">Управление группой</button>';
   $("#chat-title").innerHTML = esc(chat.name) + extra;
@@ -358,6 +557,9 @@ function loadMessages(quiet) {
   if (!state.chat) return;
   var c = state.chat;
   api("/api/messages?type=" + c.type + "&id=" + c.id).then(function (msgs) {
+    // Дедупликация: помечаем все полученные сообщения как «виденные», но НЕ
+    // уведомляем отсюда (уведомление — только из WebSocket new_message).
+    for (var i = 0; i < msgs.length; i++) noteMessage(msgs[i], true);
     state.messages = msgs;
     renderMessages();
     if (!quiet) refreshDialogs();
@@ -516,127 +718,11 @@ function showModal(html) {
 }
 function hideModal() { $("#modal-root").classList.add("hidden"); }
 
-// ---------- админка ----------
+// ---------- админка (сайдбар: краткая сводка; полное управление — в основном окне) ----------
 function renderAdmin(body) {
   if (state.me.role !== "admin") { body.innerHTML = '<p class="muted pad">Нет доступа.</p>'; return; }
-  body.innerHTML = '<div id="admin-body" class="pad"><p class="muted">Загрузка админпанели…</p></div>';
-  Promise.all([
-    api("/api/admin/stats"), api("/api/admin/users"), api("/api/admin/groups"), api("/api/admin/files")
-  ]).then(function (res) {
-    var st = res[0], users = res[1], groups = res[2], files = res[3];
-    var ab = $("#admin-body");
-    var html = "<h3>Статистика</h3><div class='stats'>" +
-      "Пользователей: <b>" + st.users + "</b> (активных " + st.active_users + ", в сети " + st.online + ")<br>" +
-      "Групп: <b>" + st.groups + "</b> · Сообщений: <b>" + st.messages + "</b><br>" +
-      "Файлов: <b>" + st.files_count + "</b> · Хранилище: <b>" + fmtSize(st.storage_bytes) + "</b></div>";
-
-    html += "<h3>Сотрудники</h3><div class='form-inline'>" +
-      "<input id='nu-name' placeholder='Отображаемое имя'><input id='nu-login' placeholder='Логин'>" +
-      "<input id='nu-pass' placeholder='Пароль' type='password'>" +
-      "<button class='primary sm' id='nu-add'>Добавить</button></div><table class='tbl'><tr><th>Имя</th><th>Логин</th><th>Роль</th><th>Статус</th><th></th></tr>";
-    for (var i = 0; i < users.length; i++) {
-      var uu = users[i];
-      html += "<tr><td>" + esc(uu.display_name) + "</td><td>" + esc(uu.username) + "</td>" +
-        "<td>" + (uu.role === "admin" ? "админ" : "сотр.") + "</td>" +
-        "<td>" + (uu.is_active ? statusDot(uu.status) : '<span class="muted">заблокирован</span>') + "</td>" +
-        "<td class='row-btns'>" +
-        (uu.role !== "admin"
-          ? "<button class='ghost sm au-role' data-uid='" + uu.id + "'>↑админ</button>"
-          : "<button class='ghost sm au-role' data-uid='" + uu.id + "'>↓сотр.</button>") +
-        "<button class='ghost sm au-block' data-uid='" + uu.id + "' data-active='" + (uu.is_active ? 1 : 0) + "'>" +
-        (uu.is_active ? "Блок" : "Разбл") + "</button>" +
-        "<button class='danger sm au-del' data-uid='" + uu.id + "'>✕</button></td></tr>";
-    }
-    html += "</table>";
-
-    html += "<h3>Все группы</h3><table class='tbl'><tr><th>Название</th><th>Владелец</th><th>Участн.</th><th></th></tr>";
-    for (var g = 0; g < groups.length; g++) {
-      html += "<tr><td>" + esc(groups[g].name) + "</td><td>" + esc(groups[g].owner_name) + "</td><td>" +
-        groups[g].members + "</td><td class='row-btns'><button class='ghost sm ag-open' data-gid='" +
-        groups[g].id + "'>Управлять</button><button class='danger sm ag-del' data-gid='" + groups[g].id +
-        "'>✕</button></td></tr>";
-    }
-    html += "</table>";
-
-    html += "<h3>Модерация сообщений</h3><div class='form-inline'><button class='ghost sm' id='load-msgs'>Показать последние 50</button></div><div id='msgs-box-admin'></div>";
-
-    html += "<h3>Файлы</h3><table class='tbl'><tr><th>Имя</th><th>Кто</th><th>Размер</th></tr>";
-    for (var f = 0; f < Math.min(files.length, 30); f++) {
-      html += "<tr><td>" + esc(files[f].filename) + "</td><td>" + esc(files[f].uploader) + "</td><td>" +
-        fmtSize(files[f].size) + "</td></tr>";
-    }
-    html += "</table>";
-    ab.innerHTML = html;
-
-    bindClick(ab, "#nu-add", function () {
-      api("/api/admin/users", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: $("#nu-login").value.trim(), password: $("#nu-pass").value,
-                               display_name: $("#nu-name").value.trim() })
-      }).then(function () { renderSide(); })["catch"](function (e) { showErr(e.message); });
-    }, "#nu-add");
-
-    var roles = ab.querySelectorAll(".au-role");
-    for (var r1 = 0; r1 < roles.length; r1++) roles[r1].onclick = function () {
-      var uid = parseInt(this.getAttribute("data-uid"), 10);
-      var cur = "";
-      for (var x = 0; x < users.length; x++) if (users[x].id === uid) cur = users[x].role;
-      api("/api/admin/users/" + uid, { method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: cur === "admin" ? "user" : "admin" })
-      }).then(renderSide)["catch"](function (e) { showErr(e.message); });
-    };
-    var blocks = ab.querySelectorAll(".au-block");
-    for (var r2 = 0; r2 < blocks.length; r2++) blocks[r2].onclick = function () {
-      var uid = parseInt(this.getAttribute("data-uid"), 10);
-      var act = this.getAttribute("data-active") === "1";
-      api("/api/admin/users/" + uid, { method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ is_active: !act })
-      }).then(renderSide)["catch"](function (e) { showErr(e.message); });
-    };
-    var dels = ab.querySelectorAll(".au-del");
-    for (var r3 = 0; r3 < dels.length; r3++) dels[r3].onclick = function () {
-      if (!confirm("Удалить сотрудника и все его сообщения?")) return;
-      var uid = parseInt(this.getAttribute("data-uid"), 10);
-      api("/api/admin/users/" + uid, { method: "DELETE" }).then(renderSide)["catch"](function (e) { showErr(e.message); });
-    };
-    var agOpen = ab.querySelectorAll(".ag-open");
-    for (var r4 = 0; r4 < agOpen.length; r4++) agOpen[r4].onclick = function () {
-      openGroupManageModal(parseInt(this.getAttribute("data-gid"), 10));
-    };
-    var agDel = ab.querySelectorAll(".ag-del");
-    for (var r5 = 0; r5 < agDel.length; r5++) agDel[r5].onclick = function () {
-      if (!confirm("Удалить группу?")) return;
-      var gid = parseInt(this.getAttribute("data-gid"), 10);
-      api("/api/groups/" + gid, { method: "DELETE" }).then(renderSide)["catch"](function (e) { showErr(e.message); });
-    };
-    bindClick(ab, "#load-msgs", function () { loadAdminMessages(ab); }, "#load-msgs");
-  })["catch"](function (e) {
-    var ab = $("#admin-body");
-    if (ab) ab.innerHTML = '<p class="muted">' + esc(e.message) + "</p>";
-  });
-}
-
-function loadAdminMessages(ab) {
-  api("/api/admin/messages?limit=50").then(function (ms) {
-    var box = ab.querySelector("#msgs-box-admin");
-    if (!box) return;
-    var html = "<table class='tbl'><tr><th>ID</th><th>От</th><th>Чат</th><th>Текст</th><th></th></tr>";
-    for (var i = 0; i < ms.length; i++) {
-      var m = ms[i];
-      html += "<tr" + (m.deleted ? " class='deleted-row'" : "") + "><td>" + m.id + "</td><td>" + esc(m.sender) +
-        "</td><td>" + (m.chat_type === "group" ? "гр." + esc(m.group_name || "") : "ЛС") + "</td><td>" +
-        esc((m.text || "").slice(0, 80)) + "</td><td><button class='danger sm am-del' data-mid='" + m.id +
-        "'>Удалить</button></td></tr>";
-    }
-    html += "</table>";
-    box.innerHTML = html;
-    var ds = box.querySelectorAll(".am-del");
-    for (var j = 0; j < ds.length; j++) ds[j].onclick = function () {
-      var mid = parseInt(this.getAttribute("data-mid"), 10);
-      api("/api/messages/" + mid, { method: "DELETE" }).then(function () {
-        loadAdminMessages(ab); refreshDialogs();
-      })["catch"](function (e) { showErr(e.message); });
-    };
-  })["catch"](function (e) { showErr(e.message); });
+  body.innerHTML = '<div class="pad"><p class="muted">Админпанель открыта в основном окне.<br>'+
+    'Сотрудники, группы, модерация и файлы — справа.</p></div>';
 }
 
 // ---------- WebSocket + фолбэк-опрос ----------
@@ -645,12 +731,15 @@ function connectSocket() {
   try {
     state.sock = io(state.base, { query: "token=" + state.token });
     state.sock.on("new_message", function (m) {
-      if (!state.chat) { refreshDialogs(); pingIncoming(m); return; }
-      var related = (m.chat_type === "dm" && (m.sender_id === state.chat.id || m.sender_id === state.me.id && m.group_id === state.chat.id)) ||
+      if (!m || m.sender_id === state.me.id) { refreshDialogs(); return; }
+      // Уведомление — только если это ДЕЙСТВИТЕЛЬНО новое сообщение (дедуп по id).
+      var fresh = noteMessage(m, false);
+      if (!state.chat) { refreshDialogs(); return; }
+      var related = (m.chat_type === "dm" && (m.sender_id === state.chat.id || m.group_id === state.chat.id)) ||
                     (m.chat_type === "group" && m.group_id === state.chat.id);
       if (related) { appendLocal(m); markLastRead(m); }
+      else if (fresh) { pingIncoming(m); } // не в открытом чате — всплывающее + система
       refreshDialogs();
-      if (m.sender_id !== state.me.id) pingIncoming(m);
     });
     state.sock.on("message_deleted", function (d) {
       state.messages = state.messages.filter(function (x) { return x.id !== d.id; });
@@ -678,7 +767,9 @@ function markLastRead(m) {
 }
 
 function pingIncoming(m) {
-  showNewChatToast((m.sender_name || "") + ": " + (m.text || "📎 файл"));
+  var text = (m.sender_name || "") + ": " + (m.text || "📎 файл");
+  showNewChatToast(text);
+  desktopNotify(text); // системное уведомление Electron — ровно одно на новое сообщение
   if (navigator.vibrate) { try { navigator.vibrate(120); } catch (e) {} }
 }
 

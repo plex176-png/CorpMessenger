@@ -513,6 +513,17 @@ def admin_user_edit(uid):
         db.delete_user(uid)
         return jsonify({"ok": True})
     d = request.get_json(force=True, silent=True) or {}
+    # удобные «переключатели» для кнопок админки
+    if d.get("toggle_role"):
+        new_role = "user" if target["role"] == "admin" else "admin"
+        if uid == _u["id"] and new_role != "admin":
+            return jsonify({"error": "Нельзя снять права с себя"}), 400
+        try:
+            db.set_role(uid, new_role)
+        except ValueError:
+            pass
+    if d.get("toggle_block"):
+        db.set_active(uid, False if target["is_active"] else True)
     if "role" in d:
         if uid == _u["id"] and d["role"] != "admin":
             return jsonify({"error": "Нельзя снять права с себя"}), 400
@@ -522,6 +533,33 @@ def admin_user_edit(uid):
             pass
     if "is_active" in d:
         db.set_active(uid, bool(d["is_active"]))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/admin/groups/<int:gid>", methods=["DELETE"])
+def admin_delete_group(gid):
+    _u, err = require_admin()
+    if err: return err
+    if not db.group_exists(gid):
+        return jsonify({"error": "Группа не найдена"}), 404
+    db.delete_group(gid)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/admin/files/<int:fid>", methods=["DELETE"])
+def admin_delete_file(fid):
+    _u, err = require_admin()
+    if err: return err
+    f = db.get_file(fid)
+    if not f:
+        return jsonify({"error": "Файл не найден"}), 404
+    path = os.path.join(db.UPLOAD_DIR, f["stored_name"])
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+    except OSError:
+        pass
+    db.delete_file(fid)
     return jsonify({"ok": True})
 
 
