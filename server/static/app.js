@@ -45,6 +45,19 @@ function api(path, opts) {
   opts = opts || {};
   opts.headers = opts.headers || {};
   var isForm = (typeof FormData !== "undefined" && opts.body instanceof FormData);
+  if (isForm) {
+    // не даём браузеру/Electron удалить заголовок через new Headers():
+    // без Content-Type: multipart/form-data сервер не увидит файл ("Файл не передан")
+    var clean = {};
+    for (var hk in opts.headers) {
+      if (Object.prototype.hasOwnProperty.call(opts.headers, hk)) {
+        var hv = opts.headers[hk];
+        if (hk.toLowerCase() === "content-type" && (hv === null || hv === "")) continue;
+        clean[hk] = hv;
+      }
+    }
+    opts.headers = clean;
+  }
   if (state.token) opts.headers["Authorization"] = "Bearer " + state.token;
   return fetch(state.base + path, opts).then(function (r) {
     if (r.status === 401 && state.token) { doLogout(false); throw new Error("Сессия истекла"); }
@@ -963,7 +976,8 @@ function openProfile(uid) {
     if (!overlay) {
       overlay = document.createElement("div");
       overlay.id = "profile-overlay";
-      overlay.className = "modal hidden";
+      // класс modal-root: position:fixed + flex-центрирование (в CSS нет класса ".modal"!)
+      overlay.className = "modal-root hidden";
       document.body.appendChild(overlay);
     }
     var stTxt = p.status === "online" ? "в сети" : p.status === "away" ? "отошёл" : fmtSeen(p.last_seen);
@@ -976,7 +990,7 @@ function openProfile(uid) {
       groupsHtml += "</div>";
     }
     overlay.innerHTML =
-      '<div class="modal-box prof-box">' +
+      '<div class="modal-box prof-card">' +
       '<button class="ghost sm prof-close" id="prof-close">✕</button>' +
       '<div class="prof-top">' + avatarHtml(p.display_name, p.avatar, "lg") +
       '<div><div class="prof-name">' + esc(p.display_name) + "</div>" +
@@ -1009,7 +1023,8 @@ function openProfile(uid) {
           var f = inp.files[0]; if (!f) return;
           if (f.size > 5 * 1024 * 1024) { showErr("Файл больше 5 МБ"); return; }
           var fd = new FormData(); fd.append("file", f);
-          api("/api/avatar", { method: "POST", body: fd, headers: { "Content-Type": null } }).then(function () {
+          // заголовок Content-Type не передаём вовсе — fetch сам поставит multipart/form-data с boundary
+          api("/api/avatar", { method: "POST", body: fd }).then(function () {
             toast("Аватар обновлён");
             refreshMe().then(paintDialogAvatars); openProfile(uid);
           })["catch"](function (e) { showErr("Не удалось сохранить аватар: " + e.message); });

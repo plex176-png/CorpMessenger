@@ -154,7 +154,10 @@ def profile_view(u, uid):
 def set_my_avatar(u):
     f = request.files.get("file")
     if not f or not f.filename:
-        return jsonify({"error": "Файл не передан"}), 400
+        # диагностическое сообщение: видно, дошёл ли multipart-запрос до сервера вообще
+        if not request.content_type or "multipart" not in request.content_type.lower():
+            return jsonify({"error": "Файл не передан (нет multipart-данных; content-type: %s)" % (request.content_type or "пусто")}), 400
+        return jsonify({"error": "Файл не передан (field 'file' пуст)"}), 400
     ext = os.path.splitext(f.filename)[1].lower()
     if ext not in db.ALLOWED_AVATAR_EXT:
         return jsonify({"error": "Допустимы изображения PNG/JPG/GIF/WEBP"}), 400
