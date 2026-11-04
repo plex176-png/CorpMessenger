@@ -1,5 +1,1 @@
-*.tmp
-
-server/messenger.db
-server/uploads/
-server/avatars/
+node_modules/
