@@ -155,15 +155,21 @@ input:focus, select:focus { outline: none; border-bottom-color: #3390ec; }
 .msgs-col { width: 100%; max-width: 700px; display: flex; flex-direction: column; }
 /* строка сообщения: прозрачная обёртка (аватар + тело/пузырь) */
 .msg {
-  display: block; width: auto; max-width: 100%; background: transparent;
+  display: flex; align-items: flex-end; gap: 8px; width: fit-content; max-width: 100%;
+  background: transparent;
   border-radius: 0; padding: 0; margin: 0 0 8px 0; position: relative;
-  box-shadow: none; clear: both;
+  box-shadow: none; flex-shrink: 0;
 }
 .msg.mine { margin-left: auto; }
+/* тело = пузырь: ширина по содержимому, максимум 78% колонки */
+.msg-body { min-width: 0; max-width: 78%; width: fit-content; background: #fff; border-radius: 14px; padding: 7px 12px 6px; position: relative; word-wrap: break-word; overflow-wrap: anywhere; box-shadow: 0 1px 1px rgba(16,34,64,.13); }
+.msg.mine .msg-body { background: #effdde; }
 .msg-author { font-size: 12.5px; font-weight: 700; color: #e67c73; margin-bottom: 2px; }
 .msg.mine .msg-author { display: none; }
+.msg-inner { min-width: 0; max-width: 100%; }
+.msg-content { position: relative; }
 .msg-text { display: inline; word-wrap: break-word; overflow-wrap: anywhere; white-space: pre-wrap; line-height: 1.4; font-size: 15px; }
-.msg-time { float: right; font-size: 11px; color: #9aa7b2; margin: 4px 0 -2px 8px; position: relative; top: 6px; clear: none; }
+.msg-time { float: right; font-size: 11px; color: #9aa7b2; margin: 6px 0 -3px 8px; position: relative; top: 5px; clear: none; }
 .msg.mine .msg-time { color: #6cc167; }
 .msg-del {
   position: absolute; top: 4px; right: 4px; opacity: 0; border: none; background: rgba(255,255,255,.85);
@@ -263,7 +269,6 @@ input:focus, select:focus { outline: none; border-bottom-color: #3390ec; }
 
 @media (max-width: 760px) {
   .sidebar { width: 240px; min-width: 180px; }
-  .msg { max-width: 88%; }
 }
 
 /* ---- тёмная тема ---- */
@@ -307,10 +312,11 @@ body[data-theme="dark"] button.ghost { background: transparent; color: #6ab7ff; 
 body[data-theme="dark"] .chat-head { background: #17212b; border-bottom-color: #0e1621; color: #f5f5f5; }
 [data-theme="dark"] .msgs-box,
 body[data-theme="dark"] .msgs-box { background-color: #0e1621; }
+/* в тёмной теме строка сообщения прозрачная — фон/тень только у пузыря (.msg-body) */
 [data-theme="dark"] .msg,
-body[data-theme="dark"] .msg { background: #17212b; color: #f5f5f5; box-shadow: 0 1px 1px rgba(0,0,0,.3); }
+body[data-theme="dark"] .msg { background: transparent; color: #f5f5f5; box-shadow: none; }
 [data-theme="dark"] .msg.mine,
-body[data-theme="dark"] .msg.mine { background: #2b5278; color: #fff; }
+body[data-theme="dark"] .msg.mine { background: transparent; color: #fff; }
 [data-theme="dark"] .msg-time,
 body[data-theme="dark"] .msg-time { color: #6d7f8f; }
 [data-theme="dark"] .msg.mine .msg-time,

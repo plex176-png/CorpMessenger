@@ -717,18 +717,26 @@ function renderMessages() {
     author.textContent = mine ? "" : String(m.sender_name || "");
     bodyEl.appendChild(author);
 
+    // Пузырь = сам .msg-body (см. style.css). Внутренний .msg-bubble —
+    // прозрачная обёртка без лимитов ширины: иначе в тёмной теме получалось
+    // «двойной пузырь» и тело растягивалось/отклонялось от края.
     var bubble = document.createElement("div");
-    bubble.className = "msg-bubble";
+    bubble.className = "msg-inner";
 
-    var textEl = document.createElement("div");
+    var contentRow = document.createElement("div");
+    contentRow.className = "msg-content";
+
+    var textEl = document.createElement("span");
     textEl.className = "msg-text";
     renderEmojiInto(textEl, m.text);
-    bubble.appendChild(textEl);
+    contentRow.appendChild(textEl);
 
     var timeEl = document.createElement("span");
     timeEl.className = "msg-time";
     timeEl.textContent = fmtTime(m.created_at);
-    bubble.appendChild(timeEl);
+    contentRow.appendChild(timeEl);
+
+    bubble.appendChild(contentRow);
 
     if (m.file_id) {
       var fWrap = document.createElement("div");
@@ -1096,7 +1104,7 @@ function toggleMsgPicker(mid) {
   }
   var msgEl = document.querySelector('.msg[data-mid="' + mid + '"]');
   if (!msgEl) return;
-  var bubble = msgEl.querySelector(".msg-bubble") || msgEl;
+  var bubble = msgEl.querySelector(".msg-inner") || msgEl.querySelector(".msg-body") || msgEl;
   var picker = document.createElement("div");
   picker.className = "react-picker";
   picker.setAttribute("data-mid", mid);
