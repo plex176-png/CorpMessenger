@@ -153,29 +153,32 @@ input:focus, select:focus { outline: none; border-bottom-color: #3390ec; }
    под другом (flex column), свои прижаты вправо (margin-left:auto). */
 .msgs-box { display: flex; flex-direction: column; align-items: center; }
 .msgs-col { width: 100%; max-width: 700px; display: flex; flex-direction: column; }
-/* строка сообщения: прозрачная обёртка (аватар + тело/пузырь) */
+/* строка сообщения: прозрачная обёртка (аватар + тело/пузырь).
+   Занимает всю ширину колонки; исходящие прижаты вправо через justify-content. */
 .msg {
-  display: flex; align-items: flex-end; gap: 8px; width: fit-content; max-width: 100%;
+  display: flex; align-items: flex-end; gap: 8px; width: 100%; max-width: 100%;
   background: transparent;
-  border-radius: 0; padding: 0; margin: 0 0 8px 0; position: relative;
+  border-radius: 0; padding: 0; margin: 0 0 8px 0; position: static;
   box-shadow: none; flex-shrink: 0;
 }
-.msg.mine { margin-left: auto; }
-/* тело = пузырь: ширина по содержимому, максимум 78% колонки */
-.msg-body { min-width: 0; max-width: 78%; width: fit-content; background: #fff; border-radius: 14px; padding: 7px 12px 6px; position: relative; word-wrap: break-word; overflow-wrap: anywhere; box-shadow: 0 1px 1px rgba(16,34,64,.13); }
+.msg.mine { margin-left: 0; justify-content: flex-end; }
+/* тело = пузырь: ширина автоматически по содержимому, максимум 78% колонки */
+.msg-body { min-width: 0; max-width: 78%; width: auto; background: #fff; border-radius: 14px; padding: 7px 12px 6px; position: relative; word-wrap: break-word; overflow-wrap: anywhere; box-shadow: 0 1px 1px rgba(16,34,64,.13); }
 .msg.mine .msg-body { background: #effdde; }
 .msg-author { font-size: 12.5px; font-weight: 700; color: #e67c73; margin-bottom: 2px; }
 .msg.mine .msg-author { display: none; }
 .msg-inner { min-width: 0; max-width: 100%; }
 .msg-content { position: relative; }
+/* текст и время — в одном инлайн-потоке (как в Telegram): время прижимается к концу
+   последней строки текста, без float (float ломал ширину пузыря) */
 .msg-text { display: inline; word-wrap: break-word; overflow-wrap: anywhere; white-space: pre-wrap; line-height: 1.4; font-size: 15px; }
-.msg-time { float: right; font-size: 11px; color: #9aa7b2; margin: 6px 0 -3px 8px; position: relative; top: 5px; clear: none; }
+.msg-time { display: inline-block; font-size: 11px; color: #9aa7b2; margin-left: 8px; vertical-align: baseline; transform: translateY(-1px); }
 .msg.mine .msg-time { color: #6cc167; }
 .msg-del {
-  position: absolute; top: 4px; right: 4px; opacity: 0; border: none; background: rgba(255,255,255,.85);
+  position: absolute; top: 4px; right: -32px; opacity: 0; border: none; background: rgba(255,255,255,.85);
   font-size: 13px; padding: 1px 6px; border-radius: 10px; transition: opacity .15s; color: #e5484d; cursor: pointer;
 }
-.msg.mine .msg-del { right: auto; left: 4px; }
+.msg.mine .msg-del { right: auto; left: -32px; }
 .msg:hover .msg-del { opacity: 1; }
 .msg-img { max-width: 300px; max-height: 300px; border-radius: 10px; display: block; margin-top: 4px; }
 .file-chip {
@@ -363,14 +366,16 @@ body[data-theme="dark"] .member-row { border-bottom-color: #242f3d; }
 .js-avatar:hover, .msg-avatar:hover { filter: brightness(1.08); }
 
 /* ===== сообщения: аватар слева + пузырь (flex-поток внутри .msgs-col) ===== */
-.msg { display: flex; align-items: flex-end; gap: 8px; max-width: 100%; width: fit-content; background: transparent; box-shadow: none; padding: 0; margin-bottom: 8px; position: relative; flex-shrink: 0; }
-.msg.mine { margin-left: auto; }
-.msg .msg-avatar { margin-bottom: 2px; }
-/* тело сообщения = пузырь (bubble): в светлой теме белый, прижимается к нужному краю.
-   width: fit-content — пузырь занимает ровно ширину содержимого и не «отклоняется» от края,
-   текст переносится только когда упирается в max-width */
+/* Строка сообщения занимает ВСЮ ширину колонки: входящие выравниваются влево,
+   исходящие — строго вправо за счёт justify-content:flex-end. Никаких fit-content/float,
+   из-за которых пузырь «прыгал» влево-вправо в зависимости от длины текста. */
+.msg { display: flex; align-items: flex-end; gap: 8px; width: 100%; max-width: 100%; background: transparent; box-shadow: none; padding: 0; margin: 0 0 8px 0; position: static; flex-shrink: 0; }
+.msg.mine { margin-left: 0; justify-content: flex-end; }
+.msg .msg-avatar { margin-bottom: 2px; flex-shrink: 0; }
+/* тело сообщения = пузырь (bubble): ширина автоматически по содержимому,
+   максимум 78% колонки; текст переносится только когда упирается в лимит. */
 .msg-body {
-  min-width: 0; max-width: 78%; width: fit-content; background: #fff; border-radius: 14px;
+  min-width: 0; max-width: 78%; width: auto; background: #fff; border-radius: 14px;
   padding: 7px 12px 6px; position: relative; word-wrap: break-word; overflow-wrap: anywhere;
   box-shadow: 0 1px 1px rgba(16,34,64,.13);
 }
@@ -388,11 +393,11 @@ body[data-theme="dark"] .member-row { border-bottom-color: #242f3d; }
 }
 .react-chip.mine { background: rgba(51,144,236,.3); border-color: #3390ec; }
 .msg-react-btn {
-  position: absolute; top: 4px; right: 34px; opacity: 0; border: none; background: rgba(255,255,255,.85);
+  position: absolute; top: 4px; right: -62px; opacity: 0; border: none; background: rgba(255,255,255,.85);
   font-size: 13px; padding: 1px 6px; border-radius: 10px; transition: opacity .15s; cursor: pointer; z-index: 2;
 }
-.msg.mine .msg-react-btn { right: auto; left: 34px; }
-.msg.mine .msg-del { left: 4px; right: auto; }
+.msg.mine .msg-react-btn { right: auto; left: -62px; }
+.msg.mine .msg-del { right: auto; left: -32px; }
 .msg:hover .msg-react-btn { opacity: 1; }
 [data-theme="dark"] .msg-react-btn { background: rgba(23,33,43,.85); }
 /* чипы реакций — кликабельны: показывают, кто поставил реакцию */
